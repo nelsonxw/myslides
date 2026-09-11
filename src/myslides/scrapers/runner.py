@@ -117,9 +117,12 @@ def run_source_scrape(
         }
 
     except Exception as e:
-        source.last_status = "error"
-        source.last_error = str(e)
-        db_session.commit()
+        db_session.rollback()
+        source = db_session.query(Source).filter_by(id=source_id).first()
+        if source:
+            source.last_status = "error"
+            source.last_error = str(e)
+            db_session.commit()
         SCRAPER_PROGRESS[source_id] = {
             "status": "error",
             "current": 0,

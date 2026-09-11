@@ -69,14 +69,15 @@ export const SourcesPage: React.FC = () => {
 
           if (prog.status === 'completed' || prog.status === 'error') {
             fetchSources();
-            // Stop polling after 5 seconds
+            // Clear progress after 3 seconds so the status pill displays the completed status
             setTimeout(() => {
               setActiveProgress((prev) => {
                 const updated = { ...prev };
                 delete updated[sid];
                 return updated;
               });
-            }, 6000);
+              fetchSources();
+            }, 3000);
           }
         } catch (err) {
           console.error(err);
@@ -85,7 +86,7 @@ export const SourcesPage: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [activeProgress]);
+  }, [JSON.stringify(Object.keys(activeProgress))]);
 
   const handleAddSource = async (e: React.FormEvent) => {
     e.preventDefault();

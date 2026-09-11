@@ -108,10 +108,19 @@ def delete_single_slide(slide_id: int, db: Session = Depends(get_session)):
 @router.delete("/slides")
 def delete_all_slides(db: Session = Depends(get_session)):
     """Clear all slides and template assets from the library."""
+    from myslides.library.models import SlideFeaturesRecord, SlideScoreRecord
+    deleted_features = db.query(SlideFeaturesRecord).delete()
+    deleted_scores = db.query(SlideScoreRecord).delete()
     deleted_slides = db.query(SlideRecord).delete()
     deleted_assets = db.query(TemplateAsset).delete()
     db.commit()
-    return {"status": "cleared", "slides_deleted": deleted_slides, "assets_deleted": deleted_assets}
+    return {
+        "status": "cleared",
+        "slides_deleted": deleted_slides,
+        "assets_deleted": deleted_assets,
+        "features_deleted": deleted_features,
+        "scores_deleted": deleted_scores,
+    }
 
 
 @router.get("/rules")
