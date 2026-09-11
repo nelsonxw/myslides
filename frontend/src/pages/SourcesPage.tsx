@@ -47,6 +47,21 @@ export const SourcesPage: React.FC = () => {
     try {
       const data = await api.getSources();
       setSources(data);
+      // Auto-register any sources that the backend reports as running into activeProgress polling
+      data.forEach((s) => {
+        if (s.last_status === 'running' && !activeProgress[s.id]) {
+          setActiveProgress((prev) => ({
+            ...prev,
+            [s.id]: {
+              status: 'ingesting',
+              current: 1,
+              total: 1,
+              current_file: 'Processing...',
+              last_result: '',
+            },
+          }));
+        }
+      });
     } catch (e) {
       console.error(e);
     }
@@ -304,8 +319,8 @@ export const SourcesPage: React.FC = () => {
           <tbody>
             {sources.map((s) => {
               const prog = activeProgress[s.id];
-              const isRunning = prog && (prog.status === 'discovering' || prog.status === 'ingesting');
-              const pct = prog && prog.total > 0 ? Math.round((prog.current / prog.total) * 100) : 0;
+              const isRunning = (prog && (prog.status === 'discovering' || prog.status === 'ingesting')) || s.last_status === 'running';
+              const pct = prog && prog.total > 0 ? Math.round((prog.current / prog.total) * 100) : (s.last_status === 'running' ? 50 : 0);
 
               return (
                 <tr key={s.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
