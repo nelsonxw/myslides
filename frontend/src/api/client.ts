@@ -92,6 +92,8 @@ export const api = {
     `${API_BASE}/sessions/${sessionId}/versions/${version}/download`,
 
   // Library
+  getSlidePreviewUrl: (slideId: number) => `${API_BASE}/library/slides/${slideId}/preview.png`,
+
   getSlides: async (archetype?: string, minScore?: number, search?: string): Promise<SlideLibraryResponse> => {
     const params = new URLSearchParams();
     if (archetype) params.append('archetype', archetype);

@@ -174,6 +174,44 @@ export const LibraryPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Slide Thumbnail Preview Image */}
+              <div
+                style={{
+                  position: 'relative',
+                  width: '100%',
+                  paddingTop: '56.25%', // 16:9 Aspect Ratio
+                  background: '#F1F5F9',
+                  borderBottom: '1px solid #E2E8F0',
+                  overflow: 'hidden',
+                }}
+              >
+                <img
+                  src={api.getSlidePreviewUrl(s.id)}
+                  alt={s.title}
+                  loading="lazy"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                  }}
+                  onError={(e) => {
+                    // Fallback to stylized placeholder if thumbnail rendering is unavailable
+                    e.currentTarget.style.display = 'none';
+                    const parent = e.currentTarget.parentElement;
+                    if (parent && !parent.querySelector('.img-fallback')) {
+                      const fallback = document.createElement('div');
+                      fallback.className = 'img-fallback';
+                      fallback.style.cssText = 'position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1D2C3B; color: #94A3B8; font-size: 12px; gap: 6px; padding: 12px; text-align: center;';
+                      fallback.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="1.5"><rect width="18" height="14" x="3" y="3" rx="2"/><path d="m3 13 4-4a2 2 0 0 1 2.8 0l4.2 4.2"/><path d="m14 13 1-1a2 2 0 0 1 2.8 0l3.2 3.2"/></svg><span>${s.archetype.replace('_', ' ').toUpperCase()}</span>`;
+                      parent.appendChild(fallback);
+                    }
+                  }}
+                />
+              </div>
+
               {/* Title & Metadata */}
               <div style={{ padding: '16px', flex: 1 }}>
                 <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#1E293B', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

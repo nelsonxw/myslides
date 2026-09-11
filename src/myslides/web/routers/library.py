@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from myslides.analysis.knowledge import get_cached_design_rules
 from myslides.library.models import SlideRecord, SlideScoreRecord, TemplateAsset
 from myslides.library.repository import get_session
+from myslides.rendering.powerpoint_com import get_default_renderer
 from myslides.web.schemas import SlideLibraryItem, SlideLibraryResponse
 
 router = APIRouter(prefix="/api/library", tags=["library"])
@@ -72,9 +73,25 @@ def list_slides(
 @router.get("/slides/{slide_id}/preview.png")
 def get_slide_thumbnail(slide_id: int, db: Session = Depends(get_session)):
     slide = db.query(SlideRecord).filter_by(id=slide_id).first()
-    if not slide or not slide.preview_png_path or not Path(slide.preview_png_path).exists():
-        raise HTTPException(status_code=404, detail="Preview not found")
-    return FileResponse(slide.preview_png_path, media_type="image/png")
+    if not slide:
+        raise HTTPException(status_code=404, detail="Slide not found")
+
+    # If preview image exists on disk, serve it
+    if slide.preview_png_path and Path(slide.preview_png_path).exists():
+        return FileResponse(slide.preview_png_path, media_type="image/png")
+
+    # Otherwise render on demand if asset PPTX is available
+    if slide.asset and slide.asset.file_path and Path(slide.asset.file_path).exists():
+        try:
+            renderer = get_default_renderer()
+            preview_path = renderer.render_slide(slide.asset.file_path, slide.slide_index)
+            slide.preview_png_path = str(preview_path)
+            db.commit()
+            return FileResponse(slide.preview_png_path, media_type="image/png")
+        except Exception as e:
+            print(f"On-demand slide rendering failed for slide {slide_id}: {e}")
+
+    raise HTTPException(status_code=404, detail="Preview not available")
 
 
 @router.delete("/slides/{slide_id}")
