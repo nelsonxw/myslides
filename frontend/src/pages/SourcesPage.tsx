@@ -17,7 +17,7 @@ export const SourcesPage: React.FC = () => {
   const [licenseStr, setLicenseStr] = useState('CC BY / Open');
   const [isLoading, setIsLoading] = useState(false);
   const [isPickingFile, setIsPickingFile] = useState(false);
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Map of active scrape progress by source_id
   const [activeProgress, setActiveProgress] = useState<{ [key: number]: ScrapeProgress }>({});
@@ -37,9 +37,22 @@ export const SourcesPage: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      setStatusMsg(`File picker error: ${err.message}`);
+      setErrorMsg(`File picker error: ${err.message}`);
     } finally {
       setIsPickingFile(false);
+    }
+  };
+
+  // Format ISO timestamp to user's local timezone
+  const formatLocalTime = (isoString: string | null) => {
+    if (!isoString) return '';
+    try {
+      // Ensure ISO string with no timezone suffix is treated as UTC
+      const normalized = isoString.endsWith('Z') || isoString.includes('+') ? isoString : `${isoString}Z`;
+      const date = new Date(normalized);
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+    } catch {
+      return '';
     }
   };
 
@@ -47,21 +60,23 @@ export const SourcesPage: React.FC = () => {
     try {
       const data = await api.getSources();
       setSources(data);
-      // Auto-register any sources that the backend reports as running into activeProgress polling
+
+      // If any source is in "running" status in the DB and not yet in activeProgress, start polling it
+      const newRunning: { [key: number]: ScrapeProgress } = {};
       data.forEach((s) => {
         if (s.last_status === 'running' && !activeProgress[s.id]) {
-          setActiveProgress((prev) => ({
-            ...prev,
-            [s.id]: {
-              status: 'ingesting',
-              current: 1,
-              total: 1,
-              current_file: 'Processing...',
-              last_result: '',
-            },
-          }));
+          newRunning[s.id] = {
+            status: 'discovering',
+            current: 0,
+            total: 0,
+            current_file: 'Scraping in progress...',
+            last_result: '',
+          };
         }
       });
+      if (Object.keys(newRunning).length > 0) {
+        setActiveProgress((prev) => ({ ...prev, ...newRunning }));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -77,31 +92,33 @@ export const SourcesPage: React.FC = () => {
     if (runningSources.length === 0) return;
 
     const interval = setInterval(async () => {
+      let anyChanged = false;
+      const updatedProgress = { ...activeProgress };
+
       for (const sid of runningSources) {
         try {
           const prog = await api.getSourceProgress(sid);
-          setActiveProgress((prev) => ({ ...prev, [sid]: prog }));
-
-          if (prog.status === 'completed' || prog.status === 'error') {
-            fetchSources();
-            // Clear progress after 3 seconds so the status pill displays the completed status
-            setTimeout(() => {
-              setActiveProgress((prev) => {
-                const updated = { ...prev };
-                delete updated[sid];
-                return updated;
-              });
-              fetchSources();
-            }, 3000);
+          if (prog.status === 'completed' || prog.status === 'error' || prog.status === 'idle') {
+            delete updatedProgress[sid];
+            anyChanged = true;
+          } else {
+            updatedProgress[sid] = prog;
           }
         } catch (err) {
           console.error(err);
         }
       }
+
+      if (anyChanged) {
+        setActiveProgress(updatedProgress);
+        fetchSources();
+      } else {
+        setActiveProgress(updatedProgress);
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [JSON.stringify(Object.keys(activeProgress))]);
+  }, [activeProgress]);
 
   const handleAddSource = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,10 +133,10 @@ export const SourcesPage: React.FC = () => {
       });
       setName('');
       setUrlOrPath('');
-      setStatusMsg('Source added successfully!');
+      setErrorMsg(null);
       fetchSources();
     } catch (err: any) {
-      setStatusMsg(`Error: ${err.message}`);
+      setErrorMsg(`Error adding source: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -138,10 +155,23 @@ export const SourcesPage: React.FC = () => {
           last_result: '',
         },
       }));
-      setStatusMsg(`Scraper triggered for Source #${id}!`);
       fetchSources();
     } catch (err: any) {
-      setStatusMsg(`Error: ${err.message}`);
+      console.error(err);
+    }
+  };
+
+  const handleStopSource = async (id: number) => {
+    try {
+      await api.stopSource(id);
+      setActiveProgress((prev) => {
+        const updated = { ...prev };
+        delete updated[id];
+        return updated;
+      });
+      fetchSources();
+    } catch (err: any) {
+      console.error(err);
     }
   };
 
@@ -149,6 +179,11 @@ export const SourcesPage: React.FC = () => {
     if (!confirm('Are you sure you want to delete this source?')) return;
     try {
       await api.deleteSource(id);
+      setActiveProgress((prev) => {
+        const updated = { ...prev };
+        delete updated[id];
+        return updated;
+      });
       fetchSources();
     } catch (err: any) {
       console.error(err);
@@ -164,9 +199,9 @@ export const SourcesPage: React.FC = () => {
         Manage online and local PowerPoint sources. The app automatically scrubs templates, extracts typography & visual patterns, and updates design rules.
       </p>
 
-      {statusMsg && (
-        <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#EFF6FF', color: '#1D4ED8', borderRadius: '6px', fontSize: '13px' }}>
-          {statusMsg}
+      {errorMsg && (
+        <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA', borderRadius: '6px', fontSize: '13px' }}>
+          {errorMsg}
         </div>
       )}
 
@@ -320,28 +355,62 @@ export const SourcesPage: React.FC = () => {
             {sources.map((s) => {
               const prog = activeProgress[s.id];
               const isRunning = (prog && (prog.status === 'discovering' || prog.status === 'ingesting')) || s.last_status === 'running';
-              const pct = prog && prog.total > 0 ? Math.round((prog.current / prog.total) * 100) : (s.last_status === 'running' ? 50 : 0);
+              const pct = prog && prog.total > 0 ? Math.round((prog.current / prog.total) * 100) : (s.last_status === 'running' ? (prog?.current ? Math.round((prog.current / (prog.total || 1)) * 100) : 10) : 0);
 
               return (
                 <tr key={s.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                  <td style={{ padding: '12px 16px', fontWeight: '600', color: '#1E293B' }}>{s.name}</td>
-                  <td style={{ padding: '12px 16px', color: '#64748B' }}>{s.kind}</td>
-                  <td style={{ padding: '12px 16px', color: '#64748B' }}>{s.license}</td>
-                  <td style={{ padding: '12px 16px', minWidth: '220px' }}>
+                  <td style={{ padding: '12px 16px', fontWeight: '600', color: '#1E293B', verticalAlign: 'bottom' }}>{s.name}</td>
+                  <td style={{ padding: '12px 16px', color: '#64748B', verticalAlign: 'bottom' }}>{s.kind}</td>
+                  <td style={{ padding: '12px 16px', color: '#64748B', verticalAlign: 'bottom' }}>{s.license}</td>
+                  <td style={{ padding: '12px 16px', minWidth: '240px', verticalAlign: 'bottom' }}>
                     {isRunning ? (
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#0672CB', fontWeight: '600', marginBottom: '4px' }}>
-                          <span>{prog.current_file || 'Processing...'}</span>
-                          <span>{pct}%</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', fontSize: '11px', color: '#0672CB', fontWeight: '600', marginBottom: '4px', gap: '8px' }}>
+                          <span style={{ wordBreak: 'break-word', flex: 1 }}>{prog?.current_file || 'Scraping in progress...'}</span>
+                          <span style={{ flexShrink: 0 }}>{pct}%</span>
                         </div>
                         <div style={{ width: '100%', height: '6px', background: '#E2E8F0', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{ width: `${pct || 15}%`, height: '100%', background: '#0672CB', transition: 'width 0.3s ease' }} />
+                          <div style={{ width: `${Math.max(pct, 10)}%`, height: '100%', background: '#0672CB', transition: 'width 0.3s ease' }} />
                         </div>
                       </div>
                     ) : prog && prog.status === 'completed' ? (
                       <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', background: '#D1FAE5', color: '#065F46' }}>
                         ✓ {prog.current_file}
                       </span>
+                    ) : s.last_status === 'no_slides_found' ? (
+                      <div>
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            background: '#FFEDD5',
+                            color: '#C2410C',
+                            display: 'inline-block',
+                            marginBottom: s.last_error ? '4px' : '0',
+                          }}
+                        >
+                          ⚠️ 0 slides ingested {s.last_scraped_at ? `(${formatLocalTime(s.last_scraped_at)})` : ''}
+                        </span>
+                        {s.last_error && (
+                          <div
+                            style={{
+                              fontSize: '11px',
+                              color: '#9A3412',
+                              background: '#FFF7ED',
+                              border: '1px solid #FFEDD5',
+                              borderRadius: '4px',
+                              padding: '4px 8px',
+                              maxWidth: '320px',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {s.last_error}
+                          </div>
+                        )}
+                      </div>
                     ) : s.last_status === 'error' ? (
                       <div>
                         <span
@@ -356,7 +425,7 @@ export const SourcesPage: React.FC = () => {
                             marginBottom: s.last_error ? '4px' : '0',
                           }}
                         >
-                          error {s.last_scraped_at ? `(${new Date(s.last_scraped_at).toLocaleTimeString()})` : ''}
+                          error {s.last_scraped_at ? `(${formatLocalTime(s.last_scraped_at)})` : ''}
                         </span>
                         {s.last_error && (
                           <div
@@ -387,34 +456,80 @@ export const SourcesPage: React.FC = () => {
                           color: s.last_status === 'running' ? '#B45309' : s.last_status === 'success' ? '#065F46' : '#475569',
                         }}
                       >
-                        {s.last_status} {s.last_scraped_at ? `(${new Date(s.last_scraped_at).toLocaleTimeString()})` : ''}
+                        {s.last_status} {s.last_scraped_at ? `(${formatLocalTime(s.last_scraped_at)})` : ''}
                       </span>
                     )}
                   </td>
-                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                    <button
-                      onClick={() => handleRunSource(s.id)}
-                      disabled={Boolean(isRunning)}
-                      style={{
-                        padding: '6px 12px',
-                        marginRight: '8px',
-                        background: isRunning ? '#E2E8F0' : '#EFF6FF',
-                        color: isRunning ? '#94A3B8' : '#0672CB',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: isRunning ? 'not-allowed' : 'pointer',
-                        fontWeight: '600',
-                        fontSize: '11px',
-                      }}
-                    >
-                      {isRunning ? 'Scraping...' : 'Scrape Now'}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(s.id)}
-                      style={{ padding: '6px 10px', background: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}
-                    >
-                      Delete
-                    </button>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>
+                    <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                      {isRunning ? (
+                        <button
+                          onClick={() => handleStopSource(s.id)}
+                          style={{
+                            minWidth: '76px',
+                            height: '28px',
+                            padding: '0 10px',
+                            background: '#FEE2E2',
+                            color: '#DC2626',
+                            border: '1px solid #FECACA',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '11px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <span style={{ fontSize: '9px' }}>⏹</span> Stop
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleRunSource(s.id)}
+                          style={{
+                            minWidth: '76px',
+                            height: '28px',
+                            padding: '0 10px',
+                            background: '#EFF6FF',
+                            color: '#0672CB',
+                            border: '1px solid #BFDBFE',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '11px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          Scrape Now
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(s.id)}
+                        style={{
+                          minWidth: '64px',
+                          height: '28px',
+                          padding: '0 10px',
+                          background: '#FEE2E2',
+                          color: '#DC2626',
+                          border: '1px solid #FECACA',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontWeight: '600',
+                          fontSize: '11px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

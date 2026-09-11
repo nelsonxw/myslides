@@ -10,7 +10,7 @@ from myslides.library.models import Source
 from myslides.library.repository import get_session, get_standalone_session
 from myslides.llm.factory import get_llm_provider
 from myslides.rendering.powerpoint_com import get_default_renderer
-from myslides.scrapers.runner import get_source_progress, run_source_scrape
+from myslides.scrapers.runner import cancel_source_scrape, get_source_progress, run_source_scrape
 from myslides.web.schemas import CreateSourceRequest, SourceResponse
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -28,7 +28,7 @@ def list_sources(db: Session = Depends(get_session)):
             license=s.license or "Unknown",
             attribution=s.attribution or "",
             enabled=s.enabled,
-            last_scraped_at=s.last_scraped_at.isoformat() if s.last_scraped_at else None,
+            last_scraped_at=s.last_scraped_at.isoformat() + "Z" if s.last_scraped_at else None,
             last_status=s.last_status,
             last_error=s.last_error,
         )
@@ -66,9 +66,23 @@ def delete_source(source_id: int, db: Session = Depends(get_session)):
     source = db.query(Source).filter_by(id=source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+    # Cancel any active running scrape job first
+    cancel_source_scrape(source_id)
     db.delete(source)
     db.commit()
     return {"status": "deleted", "id": source_id}
+
+
+@router.post("/{source_id}/stop")
+def stop_scrape(source_id: int, db: Session = Depends(get_session)):
+    """Gracefully cancel and stop an active scraping task."""
+    source = db.query(Source).filter_by(id=source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    cancel_source_scrape(source_id)
+    source.last_status = "idle"
+    db.commit()
+    return {"status": "cancelled", "source_id": source_id}
 
 
 @router.post("/{source_id}/run")

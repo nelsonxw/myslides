@@ -19,6 +19,16 @@ from myslides.scrapers.registry import get_scraper_for_source
 
 # In-memory progress tracking: {source_id: {"status": str, "current": int, "total": int, "current_file": str, "last_result": str}}
 SCRAPER_PROGRESS: dict[int, dict[str, Any]] = {}
+CANCEL_FLAGS: set[int] = set()
+
+
+def cancel_source_scrape(source_id: int) -> None:
+    """Request cancellation for a running scraper task."""
+    CANCEL_FLAGS.add(source_id)
+
+
+def is_scrape_cancelled(source_id: int) -> bool:
+    return source_id in CANCEL_FLAGS
 
 
 def get_source_progress(source_id: int) -> dict[str, Any]:
@@ -46,6 +56,7 @@ def run_source_scrape(
     source.last_status = "running"
     source.last_error = None
     db_session.commit()
+    CANCEL_FLAGS.discard(source_id)
 
     SCRAPER_PROGRESS[source_id] = {
         "status": "discovering",
@@ -69,8 +80,18 @@ def run_source_scrape(
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             for i, item in enumerate(discovered):
-                SCRAPER_PROGRESS[source_id]["current"] = i + 1
+                if is_scrape_cancelled(source_id):
+                    raise InterruptedError("Scrape cancelled by user.")
+
+                deck_num = i + 1
                 SCRAPER_PROGRESS[source_id]["current_file"] = f"Ingesting: {item.title}"
+
+                def _on_slide(current_slide: int, total_slides: int):
+                    # Compute granular sub-deck percentage: completed decks + fraction of current deck slides
+                    sub_progress = (deck_num - 1) + (current_slide / max(total_slides, 1))
+                    SCRAPER_PROGRESS[source_id]["current"] = round(sub_progress, 2)
+                    SCRAPER_PROGRESS[source_id]["current_file"] = f"Ingesting: {item.title} (slide {current_slide}/{total_slides})"
+
                 try:
                     local_pptx = scraper.fetch(item, temp_path)
                     if local_pptx and local_pptx.exists():
@@ -83,18 +104,31 @@ def run_source_scrape(
                             author=item.author,
                             llm=llm,
                             renderer_func=renderer_func,
+                            on_slide_progress=_on_slide,
+                            check_cancelled=lambda: is_scrape_cancelled(source_id),
                         )
                         if asset:
                             ingested_count += 1
+                    SCRAPER_PROGRESS[source_id]["current"] = deck_num
                     # Polite rate limit delay between web downloads
-                    time.sleep(0.5)
+                    time.sleep(0.3)
+                except InterruptedError:
+                    raise
                 except Exception as ex:
                     errors.append(f"Failed {item.title}: {ex}")
 
         # Update source status
         source.last_scraped_at = datetime.datetime.utcnow()
-        source.last_status = "success" if not errors else "partial"
-        source.last_error = "\n".join(errors[:5]) if errors else None
+        if ingested_count == 0:
+            source.last_status = "no_slides_found"
+            if not source.last_error:
+                source.last_error = f"Discovered {total_items} item(s) but no valid new slides were ingested." if total_items > 0 else "No .pptx presentations or templates found on this source."
+        elif errors:
+            source.last_status = "partial"
+            source.last_error = "\n".join(errors[:5])
+        else:
+            source.last_status = "success"
+            source.last_error = None
         db_session.commit()
 
         # Update knowledge rules after new ingestion
@@ -105,9 +139,10 @@ def run_source_scrape(
             "status": "completed",
             "current": total_items,
             "total": total_items,
-            "current_file": f"Completed! Ingested {ingested_count} new slides.",
+            "current_file": f"Ingested {ingested_count} slides." if ingested_count > 0 else "No slides ingested.",
             "last_result": f"Ingested {ingested_count} templates ({len(errors)} errors)",
         }
+        CANCEL_FLAGS.discard(source_id)
 
         return {
             "status": source.last_status,
@@ -119,15 +154,17 @@ def run_source_scrape(
     except Exception as e:
         db_session.rollback()
         source = db_session.query(Source).filter_by(id=source_id).first()
+        is_cancelled = is_scrape_cancelled(source_id) or isinstance(e, InterruptedError)
         if source:
-            source.last_status = "error"
-            source.last_error = str(e)
+            source.last_status = "idle" if is_cancelled else "error"
+            source.last_error = None if is_cancelled else str(e)
             db_session.commit()
         SCRAPER_PROGRESS[source_id] = {
-            "status": "error",
+            "status": "idle" if is_cancelled else "error",
             "current": 0,
             "total": 0,
-            "current_file": f"Error: {str(e)}",
-            "last_result": f"Failed: {str(e)}",
+            "current_file": "Cancelled by user" if is_cancelled else f"Error: {str(e)}",
+            "last_result": "Stopped" if is_cancelled else f"Failed: {str(e)}",
         }
-        return {"status": "error", "message": str(e), "ingested": ingested_count}
+        CANCEL_FLAGS.discard(source_id)
+        return {"status": "cancelled" if is_cancelled else "error", "message": str(e), "ingested": ingested_count}

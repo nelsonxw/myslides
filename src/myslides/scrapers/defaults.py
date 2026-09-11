@@ -29,13 +29,6 @@ def seed_default_sources(db: Session) -> None:
             "license": "Dell Internal",
             "attribution": "Dell Technologies Generated AI Decks",
         },
-        {
-            "name": "GitHub Open-Source PowerPoint Decks",
-            "kind": "github",
-            "url_or_path": "powerpoint template",
-            "license": "MIT / Open Source",
-            "attribution": "GitHub Public Repositories",
-        },
     ]
 
     for d in defaults:

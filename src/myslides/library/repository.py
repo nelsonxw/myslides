@@ -7,7 +7,7 @@ from collections.abc import Generator
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool
 
 from myslides.config import settings
 from myslides.library.models import Base
@@ -23,7 +23,6 @@ def get_engine(db_path: Path | None = None):
     return create_engine(
         f"sqlite:///{path.as_posix()}",
         connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=StaticPool,
     )
 
 

@@ -151,6 +151,12 @@ export const api = {
     return res.json();
   },
 
+  stopSource: async (id: number) => {
+    const res = await fetch(`${API_BASE}/sources/${id}/stop`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
   getSourceProgress: async (id: number) => {
     const res = await fetch(`${API_BASE}/sources/${id}/progress`);
     if (!res.ok) throw new Error(await res.text());

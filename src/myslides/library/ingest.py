@@ -32,6 +32,8 @@ def ingest_pptx_file(
     author: str = "",
     llm: LLMProvider | None = None,
     renderer_func: Any = None,
+    on_slide_progress: Any = None,
+    check_cancelled: Any = None,
 ) -> TemplateAsset | None:
     """
     Ingest a .pptx file into the database:
@@ -43,6 +45,17 @@ def ingest_pptx_file(
     """
     path = Path(file_path).resolve()
     if not path.exists() or not path.name.endswith(".pptx"):
+        return None
+
+    # Validate that the file is actually a valid PPTX (ZIP format starting with PK)
+    try:
+        with open(path, "rb") as f_check:
+            header = f_check.read(4)
+            if header != b"PK\x03\x04":
+                print(f"Skipping {path.name}: File is not a valid PowerPoint ZIP package (magic bytes mismatch).")
+                return None
+    except Exception as e:
+        print(f"Failed checking {path.name}: {e}")
         return None
 
     sha = file_sha256(path)
@@ -79,9 +92,18 @@ def ingest_pptx_file(
     db_session.add(asset)
     db_session.flush()
 
+    total_slides = len(slides_features)
     # Process each slide
     for f in slides_features:
+        if check_cancelled and check_cancelled():
+            raise InterruptedError("Scrape task cancelled by user.")
+
         idx = f["slide_index"]
+        if on_slide_progress:
+            try:
+                on_slide_progress(idx + 1, total_slides)
+            except Exception:
+                pass
         s_hash = compute_slide_structural_hash(f)
         
         # Calculate quality scores
