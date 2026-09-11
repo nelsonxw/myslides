@@ -16,10 +16,32 @@ export const SourcesPage: React.FC = () => {
   const [urlOrPath, setUrlOrPath] = useState('');
   const [licenseStr, setLicenseStr] = useState('CC BY / Open');
   const [isLoading, setIsLoading] = useState(false);
+  const [isPickingFile, setIsPickingFile] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   // Map of active scrape progress by source_id
   const [activeProgress, setActiveProgress] = useState<{ [key: number]: ScrapeProgress }>({});
+
+  const handlePickLocal = async (targetType: 'file' | 'folder') => {
+    setIsPickingFile(true);
+    try {
+      const res = await api.pickLocalPath(targetType);
+      if (!res.cancelled && res.path) {
+        setUrlOrPath(res.path);
+        // Automatically suggest a friendly name if empty
+        if (!name) {
+          const parts = res.path.split(/[\/\\]/);
+          const rawName = parts[parts.length - 1].replace(/\.pptx$/i, '');
+          setName(rawName.replace(/[-_]/g, ' '));
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setStatusMsg(`File picker error: ${err.message}`);
+    } finally {
+      setIsPickingFile(false);
+    }
+  };
 
   const fetchSources = async () => {
     try {
@@ -170,17 +192,65 @@ export const SourcesPage: React.FC = () => {
           </div>
 
           <div style={{ gridColumn: 'span 2' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '6px' }}>
-              URL or Local Directory Path
-            </label>
-            <input
-              type="text"
-              placeholder="https://example.com/templates or C:\path\to\decks"
-              value={urlOrPath}
-              onChange={(e) => setUrlOrPath(e.target.value)}
-              required
-              style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px' }}
-            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>
+                {kind === 'local_folder' ? 'Local File or Directory Path' : 'URL or Target Query'}
+              </label>
+              {kind === 'local_folder' && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handlePickLocal('file')}
+                    disabled={isPickingFile}
+                    style={{
+                      padding: '4px 10px',
+                      background: '#EFF6FF',
+                      color: '#0672CB',
+                      border: '1px solid #BFDBFE',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      cursor: isPickingFile ? 'wait' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    📂 Browse .pptx File
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePickLocal('folder')}
+                    disabled={isPickingFile}
+                    style={{
+                      padding: '4px 10px',
+                      background: '#F8FAFC',
+                      color: '#475569',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      cursor: isPickingFile ? 'wait' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    📁 Browse Folder
+                  </button>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder={kind === 'local_folder' ? 'Click Browse above or enter C:\\path\\to\\deck.pptx' : 'https://example.com/templates or query'}
+                value={urlOrPath}
+                onChange={(e) => setUrlOrPath(e.target.value)}
+                required
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+              />
+            </div>
           </div>
 
           <div>

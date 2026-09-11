@@ -22,7 +22,23 @@ class LocalFolderScraper:
             return []
         
         items = []
-        # Find all .pptx files recursively
+        # Case 1: Target path is a direct .pptx file
+        if self.folder_path.is_file() and self.folder_path.suffix.lower() == ".pptx":
+            if not self.folder_path.name.startswith("~$"):
+                items.append(
+                    ScrapedItem(
+                        source_id=self.source_id,
+                        title=self.folder_path.stem,
+                        url_or_path=str(self.folder_path),
+                        local_path=self.folder_path,
+                        license=self.license_str,
+                        attribution=self.attribution or f"Local file: {self.folder_path.name}",
+                        author="Local",
+                    )
+                )
+            return items
+
+        # Case 2: Target path is a directory containing .pptx files
         count = 0
         for p in self.folder_path.rglob("*.pptx"):
             if p.name.startswith("~$"):  # skip PowerPoint temp lock files

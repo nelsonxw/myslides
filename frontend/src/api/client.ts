@@ -156,4 +156,12 @@ export const api = {
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
+
+  pickLocalPath: async (targetType: 'folder' | 'file' = 'file'): Promise<{ path: string; cancelled: boolean; error?: string }> => {
+    const res = await fetch(`${API_BASE}/sources/pick-local-path?target_type=${targetType}`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
 };

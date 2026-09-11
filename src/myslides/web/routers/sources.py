@@ -94,3 +94,40 @@ def trigger_scrape(source_id: int, background_tasks: BackgroundTasks, db: Sessio
 def get_scrape_progress(source_id: int):
     """Poll the real-time progress of an active scraper."""
     return get_source_progress(source_id)
+
+
+@router.post("/pick-local-path")
+def pick_local_system_path(target_type: str = "both"):
+    """
+    Open native OS file/folder picker dialog on the host machine to select a local directory or PPTX file.
+    target_type: 'folder' | 'file' | 'both'
+    """
+    import tkinter as tk
+    from tkinter import filedialog
+
+    selected_path = ""
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        # Bring dialog to the front
+        root.attributes("-topmost", True)
+
+        if target_type == "folder":
+            selected_path = filedialog.askdirectory(title="Select Local Templates Directory")
+        else:
+            # Allow picking either PPTX files or any file
+            selected_path = filedialog.askopenfilename(
+                title="Select Local PowerPoint Presentation (.pptx)",
+                filetypes=[("PowerPoint Presentations", "*.pptx"), ("All Files", "*.*")]
+            )
+            # If user canceled file picker and target_type was both, try directory as alternative fallback if empty
+        
+        root.destroy()
+    except Exception as e:
+        print(f"File picker error: {e}")
+        return {"path": "", "cancelled": True, "error": str(e)}
+
+    if not selected_path:
+        return {"path": "", "cancelled": True}
+
+    return {"path": selected_path.replace("/", "\\"), "cancelled": False}
