@@ -6,13 +6,34 @@ from __future__ import annotations
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
-from myslides.llm.factory import get_llm_provider
+from myslides.llm.factory import get_llm_provider, is_using_mock_provider
 from myslides.rendering.powerpoint_com import get_default_renderer
 from myslides.sessions.service import GenerationSessionState, SessionService
 from myslides.web.schemas import CreateSessionRequest, IterateSessionRequest
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+
+class LLMStatusResponse(BaseModel):
+    using_mock: bool
+    message: str
+
+
+@router.get("/llm-status", response_model=LLMStatusResponse)
+def get_llm_status():
+    """Check if the app is using MockLLMProvider or a real LLM."""
+    using_mock = is_using_mock_provider()
+    if using_mock:
+        return LLMStatusResponse(
+            using_mock=True,
+            message="WARNING: Using MockLLMProvider in fallback mode. Set CLIENT_ID and CLIENT_SECRET environment variables to use the real LLM."
+        )
+    return LLMStatusResponse(
+        using_mock=False,
+        message="LLM provider configured and ready."
+    )
 
 
 def get_service() -> SessionService:

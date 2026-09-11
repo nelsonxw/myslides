@@ -1,10 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CreatePage } from './pages/CreatePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { SourcesPage } from './pages/SourcesPage';
+import { api } from './api/client';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'create' | 'library' | 'sources'>('create');
+  const [llmStatus, setLlmStatus] = useState<{ using_mock: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/sessions/llm-status')
+      .then(response => response.json())
+      .then(data => setLlmStatus(data))
+      .catch(() => setLlmStatus(null));
+  }, []);
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -72,6 +81,25 @@ export const App: React.FC = () => {
           ))}
         </nav>
       </header>
+
+      {/* LLM Warning Banner */}
+      {llmStatus?.using_mock && (
+        <div
+          style={{
+            background: '#FEF3C7',
+            border: '1px solid #F59E0B',
+            color: '#92400E',
+            padding: '12px 24px',
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span style={{ fontSize: '16px' }}>⚠️</span>
+          <span>{llmStatus.message}</span>
+        </div>
+      )}
 
       {/* Main Page Content */}
       <main style={{ flex: 1 }}>
