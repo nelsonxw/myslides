@@ -327,6 +327,40 @@ export const SourcesPage: React.FC = () => {
                       <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', background: '#D1FAE5', color: '#065F46' }}>
                         ✓ {prog.current_file}
                       </span>
+                    ) : s.last_status === 'error' ? (
+                      <div>
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            background: '#FEE2E2',
+                            color: '#DC2626',
+                            display: 'inline-block',
+                            marginBottom: s.last_error ? '4px' : '0',
+                          }}
+                        >
+                          error {s.last_scraped_at ? `(${new Date(s.last_scraped_at).toLocaleTimeString()})` : ''}
+                        </span>
+                        {s.last_error && (
+                          <div
+                            style={{
+                              fontSize: '11px',
+                              color: '#DC2626',
+                              background: '#FFF5F5',
+                              border: '1px solid #FECACA',
+                              borderRadius: '4px',
+                              padding: '4px 8px',
+                              maxWidth: '320px',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {s.last_error.length > 200 ? s.last_error.slice(0, 200) + '...' : s.last_error}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <span
                         style={{

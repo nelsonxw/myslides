@@ -115,12 +115,9 @@ def ingest_pptx_file(
             weaknesses=critic_data.get("weaknesses", []),
             critic_notes=critic_data.get("critic_notes", ""),
         )
-        db_session.add(slide_rec)
-        db_session.flush()
 
-        # Features record
+        # Features record associated via relationship
         feat_rec = SlideFeaturesRecord(
-            slide_id=slide_rec.id,
             features_json=f,
             shape_count=f.get("shape_count", 0),
             has_chart=f.get("has_chart", False),
@@ -132,18 +129,19 @@ def ingest_pptx_file(
             alignment_score=score_data["breakdown"]["layout"]["alignment"],
             contrast_min=score_data["breakdown"]["formatting"]["contrast"],
         )
-        db_session.add(feat_rec)
+        slide_rec.features = feat_rec
 
-        # Score record
+        # Score record associated via relationship
         score_rec = SlideScoreRecord(
-            slide_id=slide_rec.id,
             total_score=score_data["total_score"],
             visuals_score=score_data["visuals_score"],
             layout_score=score_data["layout_score"],
             formatting_score=score_data["formatting_score"],
             breakdown=score_data["breakdown"],
         )
-        db_session.add(score_rec)
+        slide_rec.score = score_rec
+
+        db_session.add(slide_rec)
 
     db_session.commit()
     return asset
