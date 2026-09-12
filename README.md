@@ -29,13 +29,23 @@ MySlides is an AI application that scrubs, indexes, and analyzes PowerPoint temp
 
 ## Quick Start
 
-### 1. Install Dependencies & Seed Library
+### 1. Install Dependencies
 ```bash
 cd myslides
+pip install -e .
+```
+
+### 2. Build Frontend
+```bash
+npm.cmd --prefix frontend run build
+```
+
+### 3. Seed Library (Optional)
+```bash
 python scripts/seed_library.py
 ```
 
-### 2. Launch the Application
+### 4. Launch the Application
 Double-click `run_app.bat` or execute:
 ```bash
 python -m uvicorn myslides.web.app:create_app --port 8000 --reload --factory
