@@ -4,8 +4,7 @@ SQLAlchemy models for storing collections, templates, and generation requests.
 """
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, JSON, Text, Float, Boolean, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
@@ -20,7 +19,7 @@ class SlideCollection(Base):
     upload_date = Column(DateTime, default=datetime.utcnow)
     total_slides = Column(Integer, default=0)
     storage_path = Column(String)  # Firebase Storage path
-    metadata = Column(JSON)  # Additional metadata
+    collection_metadata = Column(JSON)  # Additional metadata (renamed from 'metadata')
     
     # Relationship to templates
     templates = relationship("SlideTemplate", back_populates="collection", cascade="all, delete-orphan")
@@ -34,7 +33,7 @@ class SlideCollection(Base):
             "upload_date": self.upload_date.isoformat() if self.upload_date else None,
             "total_slides": self.total_slides,
             "storage_path": self.storage_path,
-            "metadata": self.metadata
+            "metadata": self.collection_metadata
         }
 
 

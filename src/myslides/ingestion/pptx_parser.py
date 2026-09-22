@@ -176,15 +176,34 @@ class ShapeInfo:
         # Extract text content if present
         text_content = None
         if hasattr(shape, 'text_frame') and shape.text_frame:
-            text_content = TextContent.from_text_frame(shape.text_frame)
+            try:
+                text_content = TextContent.from_text_frame(shape.text_frame)
+            except Exception:
+                text_content = None
+        
+        # Extract fill color with error handling
+        fill_color = None
+        try:
+            if hasattr(shape, 'fill') and hasattr(shape.fill, 'foreground_color'):
+                fill_color = ColorInfo.from_color_format(shape.fill.foreground_color)
+        except Exception:
+            fill_color = None
+        
+        # Extract line color with error handling
+        line_color = None
+        try:
+            if hasattr(shape, 'line') and hasattr(shape.line, 'color'):
+                line_color = ColorInfo.from_color_format(shape.line.color)
+        except Exception:
+            line_color = None
         
         return cls(
             shape_id=shape.shape_id,
             shape_type=shape_type_str,
             name=shape.name or f"Shape_{shape.shape_id}",
             position=PositionInfo.from_shape(shape),
-            fill_color=ColorInfo.from_color_format(shape.fill.foreground_color),
-            line_color=ColorInfo.from_color_format(shape.line.color),
+            fill_color=fill_color,
+            line_color=line_color,
             text_content=text_content,
             is_grouped=shape.shape_type == MSO_SHAPE_TYPE.GROUP,
             group_id=None  # Would need parent tracking
@@ -230,7 +249,8 @@ class ChartInfo:
         title = ""
         try:
             if hasattr(chart, 'chart_title') and chart.chart_title:
-                title = chart.chart_title.text_frame.text
+                if hasattr(chart.chart_title, 'text_frame') and chart.chart_title.text_frame:
+                    title = chart.chart_title.text_frame.text
         except Exception:
             pass
         
@@ -245,10 +265,18 @@ class ChartInfo:
         except Exception:
             pass
         
+        # Get has_legend with error handling
+        has_legend = False
+        try:
+            if hasattr(chart, 'has_legend'):
+                has_legend = chart.has_legend
+        except Exception:
+            pass
+        
         return cls(
             chart_type=chart_type,
             title=title,
-            has_legend=chart.has_legend if hasattr(chart, 'has_legend') else False,
+            has_legend=has_legend,
             data_series_count=series_count,
             category_count=category_count,
             position=PositionInfo.from_shape(chart)
@@ -297,8 +325,18 @@ class ImageInfo:
     @classmethod
     def from_picture(cls, picture) -> "ImageInfo":
         """Create ImageInfo from pptx picture."""
-        filename = getattr(picture, 'image', {}).get('filename', 'unknown')
-        content_type = getattr(picture, 'image', {}).get('content_type', 'unknown')
+        filename = "unknown"
+        content_type = "unknown"
+        
+        try:
+            if hasattr(picture, 'image'):
+                image_data = picture.image
+                if hasattr(image_data, 'filename'):
+                    filename = image_data.filename
+                if hasattr(image_data, 'content_type'):
+                    content_type = image_data.content_type
+        except Exception:
+            pass
         
         return cls(
             filename=filename,
@@ -399,32 +437,45 @@ class PPTXParser:
         color_palette = set()
         
         for shape in slide.shapes:
-            # Extract basic shape info
-            shape_info = ShapeInfo.from_shape(shape)
-            shapes.append(shape_info)
-            
-            # Extract color information
-            if shape_info.fill_color:
-                color_palette.add(shape_info.fill_color.hex_value)
-            if shape_info.line_color:
-                color_palette.add(shape_info.line_color.hex_value)
-            
-            # Extract text content
-            if shape_info.text_content:
-                all_text.append(shape_info.text_content.text)
-            
-            # Extract specific types
-            if hasattr(shape, 'chart') and shape.chart:
-                chart_info = ChartInfo.from_chart(shape.chart)
-                charts.append(chart_info)
-            
-            if hasattr(shape, 'table') and shape.table:
-                table_info = TableInfo.from_table(shape.table)
-                tables.append(table_info)
-            
-            if hasattr(shape, 'image'):
-                image_info = ImageInfo.from_picture(shape)
-                images.append(image_info)
+            try:
+                # Extract basic shape info
+                shape_info = ShapeInfo.from_shape(shape)
+                shapes.append(shape_info)
+                
+                # Extract color information
+                if shape_info.fill_color:
+                    color_palette.add(shape_info.fill_color.hex_value)
+                if shape_info.line_color:
+                    color_palette.add(shape_info.line_color.hex_value)
+                
+                # Extract text content
+                if shape_info.text_content:
+                    all_text.append(shape_info.text_content.text)
+                
+                # Extract specific types
+                if hasattr(shape, 'chart') and shape.chart:
+                    try:
+                        chart_info = ChartInfo.from_chart(shape.chart)
+                        charts.append(chart_info)
+                    except Exception:
+                        pass
+                
+                if hasattr(shape, 'table') and shape.table:
+                    try:
+                        table_info = TableInfo.from_table(shape.table)
+                        tables.append(table_info)
+                    except Exception:
+                        pass
+                
+                if hasattr(shape, 'image'):
+                    try:
+                        image_info = ImageInfo.from_picture(shape)
+                        images.append(image_info)
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"Error processing shape {shape.shape_id}: {e}")
+                continue
         
         # Calculate complexity score
         complexity_score = self._calculate_complexity(shapes, charts, tables, images)

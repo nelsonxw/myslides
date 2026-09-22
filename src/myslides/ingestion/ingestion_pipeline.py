@@ -78,7 +78,7 @@ class IngestionPipeline:
                 file_name=presentation_metadata["file_name"],
                 storage_path=pptx_storage_info.storage_path,
                 total_slides=presentation_metadata["slide_count"],
-                metadata=presentation_metadata
+                collection_metadata=presentation_metadata
             )
             
             results["collection_id"] = collection.id

@@ -39,7 +39,7 @@ class DatabaseManager:
     
     # Collection operations
     def create_collection(self, file_name: str, storage_path: str, 
-                          total_slides: int = 0, metadata: Optional[Dict] = None) -> SlideCollection:
+                          total_slides: int = 0, collection_metadata: Optional[Dict] = None) -> SlideCollection:
         """
         Create a new slide collection.
         
@@ -47,22 +47,30 @@ class DatabaseManager:
             file_name: Name of the uploaded file
             storage_path: Firebase Storage path
             total_slides: Number of slides in the collection
-            metadata: Additional metadata
+            collection_metadata: Additional metadata
         
         Returns:
             Created SlideCollection object
         """
-        with self.get_session() as session:
+        session = self.SessionLocal()
+        try:
             collection = SlideCollection(
                 file_name=file_name,
                 storage_path=storage_path,
                 total_slides=total_slides,
-                metadata=metadata or {}
+                collection_metadata=collection_metadata or {}
             )
             session.add(collection)
-            session.flush()
+            session.commit()
             session.refresh(collection)
+            # Detach from session to prevent detached instance errors
+            session.expunge(collection)
             return collection
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
     
     def get_collection(self, collection_id: int) -> Optional[SlideCollection]:
         """
