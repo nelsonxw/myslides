@@ -132,6 +132,14 @@ class DeckGenerationResponse(BaseModel):
     error: Optional[str] = None
 
 
+class DeckResponse(BaseModel):
+    """Response model for a deck."""
+    id: int
+    title: str
+    slides: List[int]
+    created_at: Optional[str] = None
+
+
 # Palette Models
 class PaletteResponse(BaseModel):
     """Response model for a color palette."""

@@ -294,3 +294,46 @@ class TestPalettesEndpoints:
         assert data["total"] == 1
         assert len(data["palettes"]) == 1
         assert data["palettes"][0]["colors"] == ["#FF0000", "#00FF00", "#0000FF"]
+
+
+class TestPhase2Endpoints:
+    """Test Phase 2 API endpoints."""
+
+    @patch("myslides.api.main.db_manager")
+    def test_get_deck(self, mock_db, client):
+        """Test getting a deck."""
+        mock_deck = Mock()
+        mock_deck.id = 1
+        mock_deck.title = "Pitch Deck"
+        mock_deck.slides = [1, 2, 3]
+        mock_deck.created_at = None
+        mock_db.get_deck.return_value = mock_deck
+
+        response = client.get("/api/decks/1")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == 1
+        assert data["title"] == "Pitch Deck"
+        assert data["slides"] == [1, 2, 3]
+
+    @patch("myslides.api.main.db_manager")
+    def test_update_deck(self, mock_db, client):
+        """Test updating a deck."""
+        mock_deck = Mock()
+        mock_deck.id = 1
+        mock_db.update_deck.return_value = mock_deck
+
+        response = client.patch("/api/decks/1", json={"slides": [3, 2, 1]})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+
+    def test_parse_csv_endpoint(self, client):
+        """Test CSV parsing endpoint."""
+        csv_content = b"Metric,2023,2024\nRevenue,100,150"
+        files = {"file": ("data.csv", csv_content, "text/csv")}
+        response = client.post("/api/data/parse-csv", files=files)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["categories"] == ["2023", "2024"]
+        assert data["series_data"]["Revenue"] == [100.0, 150.0]

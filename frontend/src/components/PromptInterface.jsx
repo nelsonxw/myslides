@@ -14,7 +14,7 @@ const EXAMPLE_PROMPTS = [
   'Create a title slide for Q4 sales presentation',
 ];
 
-function PromptInterface({ onPromptParsed, onSlideGenerated }) {
+function PromptInterface({ onPromptParsed, onSlideGenerated, onDeckGenerated }) {
   const [promptText, setPromptText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [parsedIntent, setParsedIntent] = useState(null);
@@ -84,6 +84,28 @@ function PromptInterface({ onPromptParsed, onSlideGenerated }) {
     }
   };
 
+  const handleGenerateDeck = async () => {
+    if (!promptText.trim()) {
+      setError('Please enter a prompt');
+      return;
+    }
+
+    setIsGenerating(true);
+    setError(null);
+
+    try {
+      const response = await api.createDeck([promptText], 'Generated Deck');
+      if (onDeckGenerated) {
+        onDeckGenerated(response.data);
+      }
+    } catch (err) {
+      setError('Failed to generate deck. Please try again.');
+      console.error(err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <div className="prompt-interface">
       <div className="prompt-header">
@@ -130,6 +152,13 @@ function PromptInterface({ onPromptParsed, onSlideGenerated }) {
           disabled={isGenerating || !parsedIntent}
         >
           {isGenerating ? 'Generating...' : 'Generate Slide'}
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={handleGenerateDeck}
+          disabled={isGenerating || !promptText.trim()}
+        >
+          {isGenerating ? 'Generating...' : 'Generate Deck'}
         </button>
       </div>
 

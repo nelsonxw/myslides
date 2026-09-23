@@ -61,6 +61,8 @@ export const api = {
   // Slides and Decks
   getSlidePreview: (requestId) => apiClient.get(`/api/slides/${requestId}/preview`),
   downloadSlide: (requestId) => apiClient.get(`/api/slides/${requestId}/download`, { responseType: 'blob' }),
+  getDeck: (deckId) => apiClient.get(`/api/decks/${deckId}`),
+  updateDeck: (deckId, data) => apiClient.patch(`/api/decks/${deckId}`, data),
   downloadDeck: (deckId) => apiClient.get(`/api/decks/${deckId}/download`, { responseType: 'blob' }),
 
   // Palettes

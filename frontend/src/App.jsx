@@ -7,16 +7,20 @@ import React, { useState } from 'react';
 import UploadInterface from './components/UploadInterface';
 import PromptInterface from './components/PromptInterface';
 import SuggestionPreviewPanel from './components/SuggestionPreviewPanel';
+import EditingPanel from './components/EditingPanel';
+import DeckBuilder from './components/DeckBuilder';
+import { api } from './api/client';
 import './App.css';
 
 function App() {
   const [activeTab, setActiveTab] = useState('upload');
   const [parsedIntent, setParsedIntent] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [generatedSlide, setGeneratedSlide] = useState(null);
+  const [deckId, setDeckId] = useState(null);
 
   const handleUploadComplete = (data) => {
     console.log('Upload complete:', data);
-    // Could switch to templates view or show success message
   };
 
   const handlePromptParsed = (intent) => {
@@ -26,6 +30,35 @@ function App() {
 
   const handleTemplateSelected = (template) => {
     setSelectedTemplate(template);
+  };
+
+  const handleSlideGenerated = (slideData) => {
+    setGeneratedSlide(slideData);
+    setActiveTab('edit');
+  };
+
+  const handleDeckGenerated = (deckData) => {
+    setDeckId(deckData.deck_id);
+    setActiveTab('deck');
+  };
+
+  const handleRegenerate = (newSlideData) => {
+    setGeneratedSlide(newSlideData);
+  };
+
+  const handleDownload = async (requestId) => {
+    try {
+      const response = await api.downloadSlide(requestId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'generated_slide.pptx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error('Failed to download slide:', error);
+    }
   };
 
   return (
@@ -55,6 +88,20 @@ function App() {
         >
           Suggestions
         </button>
+        <button
+          className={`nav-tab ${activeTab === 'edit' ? 'active' : ''}`}
+          onClick={() => setActiveTab('edit')}
+          disabled={!generatedSlide}
+        >
+          Edit
+        </button>
+        <button
+          className={`nav-tab ${activeTab === 'deck' ? 'active' : ''}`}
+          onClick={() => setActiveTab('deck')}
+          disabled={!deckId}
+        >
+          Deck
+        </button>
       </nav>
 
       <main className="app-main">
@@ -65,6 +112,8 @@ function App() {
         {activeTab === 'prompt' && (
           <PromptInterface
             onPromptParsed={handlePromptParsed}
+            onSlideGenerated={handleSlideGenerated}
+            onDeckGenerated={handleDeckGenerated}
           />
         )}
 
@@ -72,12 +121,28 @@ function App() {
           <SuggestionPreviewPanel
             parsedIntent={parsedIntent}
             onTemplateSelected={handleTemplateSelected}
+            onSlideGenerated={handleSlideGenerated}
+          />
+        )}
+
+        {activeTab === 'edit' && (
+          <EditingPanel
+            generatedSlide={generatedSlide}
+            onRegenerate={handleRegenerate}
+            onDownload={handleDownload}
+          />
+        )}
+
+        {activeTab === 'deck' && (
+          <DeckBuilder
+            deckId={deckId}
+            onDeckExported={() => console.log('Deck exported')}
           />
         )}
       </main>
 
       <footer className="app-footer">
-        <p>MySlides v1.0.0 - Module 5 MVP</p>
+        <p>MySlides v2.0.0 - Phase 2</p>
       </footer>
     </div>
   );

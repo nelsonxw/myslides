@@ -38,6 +38,7 @@ class ChartSubType(Enum):
     PIE = "pie"
     DONUT = "donut"
     AREA = "area"
+    AREA_STACKED = "area_stacked"
     SCATTER = "scatter"
     COMBO = "combo"
     WATERFALL = "waterfall"

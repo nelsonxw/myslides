@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
 
-function SuggestionPreviewPanel({ parsedIntent, onTemplateSelected }) {
+function SuggestionPreviewPanel({ parsedIntent, onTemplateSelected, onSlideGenerated }) {
   const [suggestions, setSuggestions] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -67,6 +67,9 @@ function SuggestionPreviewPanel({ parsedIntent, onTemplateSelected }) {
         parsedIntent.color_preference
       );
       setGeneratedSlide(response.data);
+      if (onSlideGenerated) {
+        onSlideGenerated(response.data);
+      }
     } catch (error) {
       console.error('Failed to generate slide:', error);
     } finally {

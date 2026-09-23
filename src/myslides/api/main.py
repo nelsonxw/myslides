@@ -22,13 +22,16 @@ from myslides.llm.llm_client import LLMClient, LLMProvider
 from myslides.template_matching.template_matcher import TemplateMatcher
 from myslides.generation.slide_generator import SlideGenerator
 from myslides.generation.pptx_exporter import PPTXExporter
+from myslides.generation.data_parser import DataParser
+from myslides.generation.slide_preview_renderer import SlidePreviewRenderer
+from myslides.generation.pdf_exporter import PDFExporter
 from myslides.api.api_models import (
     CollectionCreate, CollectionResponse, CollectionsListResponse,
     TemplateResponse, TemplateUpdate, TemplatesListResponse,
     PromptParseRequest, PromptParseResponse,
     TemplateSuggestionRequest, TemplateSuggestionResponse,
     SlideGenerationRequest, SlideGenerationResponse,
-    DeckGenerationRequest, DeckGenerationResponse,
+    DeckGenerationRequest, DeckGenerationResponse, DeckResponse,
     PaletteResponse, PalettesListResponse,
     UploadResponse
 )
@@ -318,6 +321,80 @@ async def create_deck(request: DeckGenerationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/decks/{deck_id}", response_model=DeckResponse)
+async def get_deck(deck_id: int):
+    """
+    Get a deck by ID.
+
+    FR-5.5: Deck Builder
+    """
+    try:
+        deck = db_manager.get_deck(deck_id)
+        if not deck:
+            raise HTTPException(status_code=404, detail="Deck not found")
+
+        return DeckResponse(
+            id=deck.id,
+            title=deck.title,
+            slides=deck.slides,
+            created_at=deck.created_at.isoformat() if deck.created_at else None
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/api/decks/{deck_id}")
+async def update_deck(deck_id: int, update_data: dict):
+    """
+    Update a deck (e.g., reorder slides).
+
+    FR-5.5: Deck Builder
+    """
+    try:
+        deck = db_manager.update_deck(deck_id, update_data)
+        if not deck:
+            raise HTTPException(status_code=404, detail="Deck not found")
+
+        return {"status": "success", "deck_id": deck.id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/data/parse-csv")
+async def parse_csv_data(file: UploadFile = File(...)):
+    """
+    Parse uploaded CSV file into chart data.
+
+    FR-4.2 Phase 2: CSV/Excel data upload for charts
+    """
+    try:
+        content = await file.read()
+        csv_text = content.decode('utf-8')
+        parsed_data = DataParser.parse_csv(csv_text)
+        return parsed_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/data/parse-excel")
+async def parse_excel_data(file: UploadFile = File(...)):
+    """
+    Parse uploaded Excel file into chart data.
+
+    FR-4.2 Phase 2: CSV/Excel data upload for charts
+    """
+    try:
+        content = await file.read()
+        parsed_data = DataParser.parse_excel(content)
+        return parsed_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Slide and Deck Endpoints
 @app.get("/api/slides/{request_id}/preview")
 async def get_slide_preview(request_id: int):
@@ -325,6 +402,7 @@ async def get_slide_preview(request_id: int):
     Get PNG preview of generated slide.
 
     FR-5.3: Preview panel
+    FR-4.5 Phase 2: PPTX to image rendering
     """
     gen_request = db_manager.get_generation_request(request_id)
     if not gen_request:
@@ -333,11 +411,88 @@ async def get_slide_preview(request_id: int):
     if not gen_request.generated_file_path:
         raise HTTPException(status_code=404, detail="No generated file found")
 
-    # For MVP, return the PPTX file (PNG preview would require additional processing)
+    # Attempt to render real PNG image
+    rendered_image = SlidePreviewRenderer.render_slide_to_image(gen_request.generated_file_path)
+    if rendered_image and rendered_image.endswith(".png") and Path(rendered_image).exists():
+        return FileResponse(
+            rendered_image,
+            media_type="image/png",
+            filename=f"slide_{request_id}_preview.png"
+        )
+
+    # Fallback to metadata if image rendering not supported on host
+    metadata = SlidePreviewRenderer.get_slide_metadata(gen_request.generated_file_path)
+    return {
+        "request_id": request_id,
+        "metadata": metadata,
+        "note": "PNG preview generated or fallback metadata provided"
+    }
+
+
+@app.get("/api/slides/{request_id}/export-pdf")
+async def export_slide_pdf(request_id: int):
+    """
+    Export generated slide as PDF.
+
+    FR-4.5 Phase 2: PDF export
+    """
+    gen_request = db_manager.get_generation_request(request_id)
+    if not gen_request:
+        raise HTTPException(status_code=404, detail="Generation request not found")
+
+    if not gen_request.generated_file_path:
+        raise HTTPException(status_code=404, detail="No generated file found")
+
+    pdf_path = PDFExporter.export_to_pdf(gen_request.generated_file_path)
+
+    if pdf_path.endswith(".pdf") and Path(pdf_path).exists():
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename="generated_slide.pdf"
+        )
+
     return FileResponse(
-        gen_request.generated_file_path,
+        pdf_path,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         filename="generated_slide.pptx"
+    )
+
+
+@app.get("/api/decks/{deck_id}/export-pdf")
+async def export_deck_pdf(deck_id: int):
+    """
+    Export generated deck as PDF.
+
+    FR-4.5 Phase 2: PDF export
+    """
+    deck = db_manager.get_deck(deck_id)
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    from myslides.generation.generation_models import GenerationIntent, SlideType
+    intent = GenerationIntent(
+        slide_type=SlideType.TITLE_SLIDE,
+        content={"title": deck.title, "subtitle": "Generated by MySlides"}
+    )
+    presentation = slide_generator.generate_slide(intent)
+    temp_dir = Path(tempfile.mkdtemp())
+    pptx_path = temp_dir / f"{deck.title.replace(' ', '_')}.pptx"
+    exporter = PPTXExporter(presentation)
+    exporter.save(pptx_path)
+
+    pdf_path = PDFExporter.export_to_pdf(str(pptx_path))
+    if pdf_path.endswith(".pdf") and Path(pdf_path).exists():
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename=f"{deck.title.replace(' ', '_')}.pdf"
+        )
+
+    return FileResponse(
+        str(pptx_path),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=f"{deck.title.replace(' ', '_')}.pptx"
     )
 
 

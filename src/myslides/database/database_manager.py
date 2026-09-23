@@ -462,15 +462,37 @@ class DatabaseManager:
     def get_deck(self, deck_id: int) -> Optional[GeneratedDeck]:
         """
         Get a deck by ID.
-        
+
         Args:
             deck_id: Deck ID
-        
+
         Returns:
             GeneratedDeck object or None
         """
         with self.get_session() as session:
             return session.query(GeneratedDeck).filter(GeneratedDeck.id == deck_id).first()
+
+    def update_deck(self, deck_id: int, update_data: Dict[str, Any]) -> Optional[GeneratedDeck]:
+        """
+        Update a deck.
+
+        Args:
+            deck_id: Deck ID
+            update_data: Dictionary with fields to update
+
+        Returns:
+            Updated GeneratedDeck object or None
+        """
+        with self.get_session() as session:
+            deck = session.query(GeneratedDeck).filter(GeneratedDeck.id == deck_id).first()
+            if deck:
+                for key, value in update_data.items():
+                    if hasattr(deck, key):
+                        setattr(deck, key, value)
+                session.flush()
+                session.refresh(deck)
+                return deck
+            return None
     
     def list_decks(self, user_id: Optional[str] = None) -> List[GeneratedDeck]:
         """

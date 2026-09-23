@@ -82,10 +82,10 @@ class ChartGenerator:
     def _get_pptx_chart_type(self, chart_sub_type: ChartSubType) -> XL_CHART_TYPE:
         """
         Convert ChartSubType to pptx XL_CHART_TYPE.
-        
+
         Args:
             chart_sub_type: ChartSubType enum value
-        
+
         Returns:
             XL_CHART_TYPE enum value
         """
@@ -99,11 +99,12 @@ class ChartGenerator:
             ChartSubType.PIE: XL_CHART_TYPE.PIE,
             ChartSubType.DONUT: XL_CHART_TYPE.DOUGHNUT,
             ChartSubType.AREA: XL_CHART_TYPE.AREA,
+            ChartSubType.AREA_STACKED: XL_CHART_TYPE.AREA_STACKED,
             ChartSubType.SCATTER: XL_CHART_TYPE.XY_SCATTER,
             ChartSubType.COMBO: XL_CHART_TYPE.COLUMN_CLUSTERED,
             ChartSubType.WATERFALL: XL_CHART_TYPE.COLUMN_STACKED
         }
-        
+
         return type_mapping.get(chart_sub_type, XL_CHART_TYPE.COLUMN_CLUSTERED)
     
     def create_bar_chart(self, slide, title: str, categories: List[str], 
@@ -175,5 +176,70 @@ class ChartGenerator:
             series_data={"Series 1": values},
             has_legend=True
         )
-        
+
+        self.add_chart_to_slide(slide, chart_data)
+
+    def create_combo_chart(self, slide, title: str, categories: List[str],
+                          primary_series: Dict[str, List[float]],
+                          secondary_series: Dict[str, List[float]]) -> None:
+        """
+        Create a combo chart (bar + line overlay) (FR-4.2 Phase 2).
+
+        Args:
+            slide: pptx slide object
+            title: Chart title
+            categories: List of category labels
+            primary_series: Dictionary for bar series
+            secondary_series: Dictionary for line series
+        """
+        chart_data = ChartData(
+            chart_type=ChartSubType.COMBO,
+            title=title,
+            categories=categories,
+            series_data={**primary_series, **secondary_series},
+            has_legend=True
+        )
+
+        self.add_chart_to_slide(slide, chart_data)
+
+    def create_waterfall_chart(self, slide, title: str, categories: List[str],
+                             values: List[float]) -> None:
+        """
+        Create a waterfall chart (variance analysis) (FR-4.2 Phase 2).
+
+        Args:
+            slide: pptx slide object
+            title: Chart title
+            categories: List of category labels
+            values: List of values (positive/negative for up/down)
+        """
+        chart_data = ChartData(
+            chart_type=ChartSubType.WATERFALL,
+            title=title,
+            categories=categories,
+            series_data={"Values": values},
+            has_legend=False
+        )
+
+        self.add_chart_to_slide(slide, chart_data)
+
+    def create_stacked_area_chart(self, slide, title: str, categories: List[str],
+                                  series_data: Dict[str, List[float]]) -> None:
+        """
+        Create a stacked area chart (FR-4.2 Phase 2).
+
+        Args:
+            slide: pptx slide object
+            title: Chart title
+            categories: List of category labels
+            series_data: Dictionary mapping series names to value lists
+        """
+        chart_data = ChartData(
+            chart_type=ChartSubType.AREA_STACKED,
+            title=title,
+            categories=categories,
+            series_data=series_data,
+            has_legend=True
+        )
+
         self.add_chart_to_slide(slide, chart_data)
