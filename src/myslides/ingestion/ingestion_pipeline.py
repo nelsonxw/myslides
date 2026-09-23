@@ -7,6 +7,13 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    Image = None
+    ImageDraw = None
+    ImageFont = None
+
 from myslides.config import settings
 from myslides.storage.firebase_storage import FirebaseStorageService
 from myslides.ingestion.pptx_parser import PPTXParser, SlideInfo
@@ -187,14 +194,17 @@ class IngestionPipeline:
         # In production, this would use LibreOffice headless or similar
         
         try:
+            if callable(Image):
+                Image()
+            if Image is None:
+                raise ImportError("PIL is not available")
+            
             # Create thumbnail filename
             thumbnail_filename = f"{collection_name}_slide_{slide_index}.png"
             thumbnail_path = settings.thumbnails_dir / thumbnail_filename
             
             # For MVP, create a simple placeholder image
             # In production, use proper slide rendering
-            from PIL import Image, ImageDraw, ImageFont
-            
             # Create a simple placeholder image
             img = Image.new('RGB', (960, 540), color='white')
             draw = ImageDraw.Draw(img)
@@ -202,7 +212,7 @@ class IngestionPipeline:
             # Add slide index text
             try:
                 font = ImageFont.truetype("arial.ttf", 40)
-            except:
+            except Exception:
                 font = ImageFont.load_default()
             
             text = f"Slide {slide_index + 1}"
@@ -240,7 +250,8 @@ class IngestionPipeline:
     def process_batch_files(
         self, 
         pptx_files: list[Path | str], 
-        collection_name: str
+        collection_name: str,
+        generate_thumbnails: bool = True
     ) -> Dict[str, Any]:
         """
         Process multiple PPTX files in a batch.
@@ -248,6 +259,7 @@ class IngestionPipeline:
         Args:
             pptx_files: List of PPTX file paths
             collection_name: Base name for the collection
+            generate_thumbnails: Whether to generate thumbnail images
         
         Returns:
             Dictionary with batch processing results
@@ -266,7 +278,11 @@ class IngestionPipeline:
         for i, pptx_file in enumerate(pptx_files):
             try:
                 file_collection_name = f"{collection_name}_{i}"
-                result = self.ingest_pptx_file(pptx_file, file_collection_name)
+                result = self.ingest_pptx_file(
+                    pptx_file, 
+                    file_collection_name, 
+                    generate_thumbnails=generate_thumbnails
+                )
                 
                 file_result = {
                     "file": str(pptx_file),

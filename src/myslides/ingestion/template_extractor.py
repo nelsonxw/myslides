@@ -292,13 +292,13 @@ class TemplateExtractor:
         """
         text_lower = text.lower()
         
+        # Subtitle patterns (checked before title since 'title' is a substring of 'subtitle')
+        if any(word in text_lower for word in ["subtitle", "subheading", "byline"]):
+            return "subtitle"
+        
         # Title patterns
         if any(word in text_lower for word in ["title", "heading", "header"]):
             return "title"
-        
-        # Subtitle patterns
-        if any(word in text_lower for word in ["subtitle", "subheading", "byline"]):
-            return "subtitle"
         
         # Number patterns
         if text.replace(".", "").replace(",", "").isdigit():
@@ -371,7 +371,7 @@ class TemplateExtractor:
         structure_parts = []
         
         # Add shape count and types
-        shape_types = [shape.shape_type for shape in slide_info.shapes]
+        shape_types = [str(shape.shape_type) for shape in slide_info.shapes]
         structure_parts.append(f"shapes:{len(shape_types)}:{','.join(sorted(shape_types))}")
         
         # Add chart types

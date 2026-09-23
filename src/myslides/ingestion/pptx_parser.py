@@ -49,17 +49,25 @@ class ColorInfo:
     @classmethod
     def from_color_format(cls, color_format) -> Optional["ColorInfo"]:
         """Create ColorInfo from pptx color format."""
-        if color_format is None or color_format.type == 0:  # No color
+        if color_format is None:
             return None
         
         try:
-            rgb = color_format.rgb
-            if rgb:
-                hex_value = f"#{rgb:06x}"
-                r = (rgb >> 16) & 0xFF
-                g = (rgb >> 8) & 0xFF
-                b = rgb & 0xFF
-                brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+            if hasattr(color_format, 'type') and color_format.type == 0:  # No color
+                return None
+            
+            rgb = getattr(color_format, 'rgb', None)
+            if rgb is not None:
+                if isinstance(rgb, (tuple, list)) or (hasattr(rgb, '__iter__') and not isinstance(rgb, (int, str))):
+                    r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
+                    hex_value = f"#{r:02x}{g:02x}{b:02x}"
+                else:
+                    rgb_int = int(rgb)
+                    hex_value = f"#{rgb_int:06x}"
+                    r = (rgb_int >> 16) & 0xFF
+                    g = (rgb_int >> 8) & 0xFF
+                    b = rgb_int & 0xFF
+                brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
                 return cls(hex_value=hex_value, rgb=(r, g, b), brightness=brightness)
         except Exception:
             pass
@@ -164,14 +172,14 @@ class ShapeInfo:
         shape_type_str = str(shape.shape_type)
         
         # Determine shape type
-        if hasattr(shape, 'chart'):
+        if getattr(shape, 'has_chart', False) is True:
             shape_type_str = "chart"
-        elif hasattr(shape, 'table'):
+        elif getattr(shape, 'has_table', False) is True:
             shape_type_str = "table"
-        elif hasattr(shape, 'picture'):
-            shape_type_str = "picture"
-        elif shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+        elif hasattr(shape, 'shape_type') and (shape.shape_type == MSO_SHAPE_TYPE.GROUP or str(shape.shape_type).lower() == 'group'):
             shape_type_str = "group"
+        elif hasattr(shape, 'shape_type') and (shape.shape_type == MSO_SHAPE_TYPE.PICTURE or str(shape.shape_type).lower() == 'picture'):
+            shape_type_str = "picture"
         
         # Extract text content if present
         text_content = None
@@ -184,8 +192,12 @@ class ShapeInfo:
         # Extract fill color with error handling
         fill_color = None
         try:
-            if hasattr(shape, 'fill') and hasattr(shape.fill, 'foreground_color'):
-                fill_color = ColorInfo.from_color_format(shape.fill.foreground_color)
+            if hasattr(shape, 'fill') and shape.fill:
+                fill = shape.fill
+                if hasattr(fill, 'fore_color'):
+                    fill_color = ColorInfo.from_color_format(fill.fore_color)
+                elif hasattr(fill, 'foreground_color'):
+                    fill_color = ColorInfo.from_color_format(fill.foreground_color)
         except Exception:
             fill_color = None
         
@@ -197,15 +209,21 @@ class ShapeInfo:
         except Exception:
             line_color = None
         
+        is_grouped = False
+        try:
+            is_grouped = (hasattr(shape, 'shape_type') and shape.shape_type == MSO_SHAPE_TYPE.GROUP)
+        except Exception:
+            pass
+        
         return cls(
-            shape_id=shape.shape_id,
+            shape_id=getattr(shape, 'shape_id', 0),
             shape_type=shape_type_str,
-            name=shape.name or f"Shape_{shape.shape_id}",
+            name=getattr(shape, 'name', '') or f"Shape_{getattr(shape, 'shape_id', 0)}",
             position=PositionInfo.from_shape(shape),
             fill_color=fill_color,
             line_color=line_color,
             text_content=text_content,
-            is_grouped=shape.shape_type == MSO_SHAPE_TYPE.GROUP,
+            is_grouped=is_grouped,
             group_id=None  # Would need parent tracking
         )
 
@@ -221,7 +239,7 @@ class ChartInfo:
     position: PositionInfo
     
     @classmethod
-    def from_chart(cls, chart) -> "ChartInfo":
+    def from_chart(cls, chart, position: Optional[PositionInfo] = None) -> "ChartInfo":
         """Create ChartInfo from pptx chart."""
         # Determine chart type
         chart_type = ChartType.UNKNOWN
@@ -273,13 +291,19 @@ class ChartInfo:
         except Exception:
             pass
         
+        if position is None:
+            if hasattr(chart, 'left') and hasattr(chart, 'top'):
+                position = PositionInfo.from_shape(chart)
+            else:
+                position = PositionInfo(0, 0, 0, 0)
+        
         return cls(
             chart_type=chart_type,
             title=title,
             has_legend=has_legend,
             data_series_count=series_count,
             category_count=category_count,
-            position=PositionInfo.from_shape(chart)
+            position=position
         )
 
 
@@ -293,23 +317,32 @@ class TableInfo:
     position: PositionInfo
     
     @classmethod
-    def from_table(cls, table) -> "TableInfo":
+    def from_table(cls, table, position: Optional[PositionInfo] = None) -> "TableInfo":
         """Create TableInfo from pptx table."""
-        rows = len(table.rows)
-        columns = len(table.columns)
+        rows = len(table.rows) if hasattr(table, 'rows') else 0
+        columns = len(table.columns) if hasattr(table, 'columns') else 0
         
         # Check if first row looks like a header
         has_header = False
         if rows > 0:
-            first_row = table.rows[0]
-            has_header = any(cell.text.strip() for cell in first_row.cells)
+            try:
+                first_row = table.rows[0]
+                has_header = any(cell.text.strip() for cell in first_row.cells)
+            except Exception:
+                has_header = False
+        
+        if position is None:
+            if hasattr(table, 'left') and hasattr(table, 'top'):
+                position = PositionInfo.from_shape(table)
+            else:
+                position = PositionInfo(0, 0, 0, 0)
         
         return cls(
             rows=rows,
             columns=columns,
             has_header=has_header,
             cell_count=rows * columns,
-            position=PositionInfo.from_shape(table)
+            position=position
         )
 
 
@@ -323,10 +356,12 @@ class ImageInfo:
     position: PositionInfo
     
     @classmethod
-    def from_picture(cls, picture) -> "ImageInfo":
+    def from_picture(cls, picture, position: Optional[PositionInfo] = None) -> "ImageInfo":
         """Create ImageInfo from pptx picture."""
         filename = "unknown"
         content_type = "unknown"
+        width = getattr(picture, 'width', 0)
+        height = getattr(picture, 'height', 0)
         
         try:
             if hasattr(picture, 'image'):
@@ -338,12 +373,18 @@ class ImageInfo:
         except Exception:
             pass
         
+        if position is None:
+            if hasattr(picture, 'left') and hasattr(picture, 'top'):
+                position = PositionInfo.from_shape(picture)
+            else:
+                position = PositionInfo(0, 0, width, height)
+        
         return cls(
             filename=filename,
             content_type=content_type,
-            width=picture.width,
-            height=picture.height,
-            position=PositionInfo.from_shape(picture)
+            width=width,
+            height=height,
+            position=position
         )
 
 
@@ -412,8 +453,8 @@ class PPTXParser:
         slide = self.presentation.slides[0]
         
         # Get slide dimensions
-        width = self.presentation.slide_width
-        height = self.presentation.slide_height
+        width = getattr(self.presentation, 'slide_width', 9144000)
+        height = getattr(self.presentation, 'slide_height', 6858000)
         
         # Determine layout type
         layout_type = self._determine_layout_type(slide)
@@ -426,7 +467,8 @@ class PPTXParser:
         all_text = []
         color_palette = set()
         
-        for shape in slide.shapes:
+        slide_shapes = slide.shapes if hasattr(slide, 'shapes') and hasattr(slide.shapes, '__iter__') else []
+        for shape in slide_shapes:
             try:
                 # Extract basic shape info
                 shape_info = ShapeInfo.from_shape(shape)
@@ -443,28 +485,29 @@ class PPTXParser:
                     all_text.append(shape_info.text_content.text)
                 
                 # Extract specific types
-                if hasattr(shape, 'chart') and shape.chart:
+                if (hasattr(shape, 'has_chart') and shape.has_chart) or (hasattr(shape, 'chart') and shape.chart):
                     try:
-                        chart_info = ChartInfo.from_chart(shape.chart)
+                        chart_info = ChartInfo.from_chart(shape.chart, position=shape_info.position)
                         charts.append(chart_info)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        print(f"Error parsing chart on slide {slide_index}: {err}")
                 
-                if hasattr(shape, 'table') and shape.table:
+                if (hasattr(shape, 'has_table') and shape.has_table) or (hasattr(shape, 'table') and shape.table):
                     try:
-                        table_info = TableInfo.from_table(shape.table)
+                        table_info = TableInfo.from_table(shape.table, position=shape_info.position)
                         tables.append(table_info)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        print(f"Error parsing table on slide {slide_index}: {err}")
                 
-                if hasattr(shape, 'image'):
+                if (hasattr(shape, 'shape_type') and str(shape.shape_type).lower() == 'picture') or hasattr(shape, 'image'):
                     try:
-                        image_info = ImageInfo.from_picture(shape)
+                        image_info = ImageInfo.from_picture(shape, position=shape_info.position)
                         images.append(image_info)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        print(f"Error parsing picture on slide {slide_index}: {err}")
             except Exception as e:
-                print(f"Error processing shape {shape.shape_id}: {e}")
+                shape_id = getattr(shape, 'shape_id', 'unknown')
+                print(f"Error processing shape {shape_id}: {e}")
                 continue
         
         # Calculate complexity score
@@ -494,11 +537,12 @@ class PPTXParser:
         Returns:
             SlideLayoutType enum value
         """
-        shape_count = len(slide.shapes)
+        slide_shapes = slide.shapes if hasattr(slide, 'shapes') and hasattr(slide.shapes, '__iter__') else []
+        shape_count = len(slide_shapes)
         text_shapes = 0
         has_title = False
         
-        for shape in slide.shapes:
+        for shape in slide_shapes:
             if hasattr(shape, 'text_frame') and shape.text_frame:
                 if shape.text_frame.text.strip():
                     text_shapes += 1

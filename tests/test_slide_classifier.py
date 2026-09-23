@@ -302,7 +302,7 @@ class TestSlideClassifier:
         for i in range(4):
             shape = Mock()
             shape.shape_type = "rectangle"
-            shape.position = PositionInfo(100, 100 + i * 200, 150, 100)  # Different Y positions
+            shape.position = PositionInfo(1000000, 1000000 + i * 1200000, 1500000, 800000)  # Distinct Y positions > 10% height
             shape.is_grouped = False
             slide_info.shapes.append(shape)
         

@@ -3,7 +3,7 @@ Tests for PPTX Parser module.
 """
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
@@ -100,21 +100,21 @@ class TestShapeInfo:
         """Test ShapeInfo creation from basic shape."""
         mock_shape = Mock()
         mock_shape.shape_id = 1
-        mock_shape.shape_type = MSO_SHAPE_TYPE.RECTANGLE
+        mock_shape.shape_type = MSO_SHAPE_TYPE.AUTO_SHAPE
         mock_shape.name = "Rectangle 1"
         mock_shape.left = 100
         mock_shape.top = 200
         mock_shape.width = 300
         mock_shape.height = 400
+        mock_shape.fill.fore_color = None
         mock_shape.fill.foreground_color = None
         mock_shape.line.color = None
         mock_shape.text_frame = None
-        mock_shape.shape_type = MSO_SHAPE_TYPE.RECTANGLE
         
         shape_info = ShapeInfo.from_shape(mock_shape)
         
         assert shape_info.shape_id == 1
-        assert shape_info.shape_type == str(MSO_SHAPE_TYPE.RECTANGLE)
+        assert shape_info.shape_type == str(MSO_SHAPE_TYPE.AUTO_SHAPE)
         assert shape_info.name == "Rectangle 1"
         assert shape_info.is_grouped is False
 
@@ -142,7 +142,7 @@ class TestPPTXParser:
     def test_parser_initialization_with_valid_file(self, sample_pptx_file):
         """Test parser initialization with valid file."""
         # We need to mock the Presentation class since we don't have a real PPTX
-        with pytest.mock.patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
+        with patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
             mock_pres = Mock()
             mock_pres.slides = []
             mock_presentation_class.return_value = mock_pres
@@ -159,7 +159,7 @@ class TestPPTXParser:
     
     def test_parse_single_slide(self, sample_pptx_file):
         """Test parsing single slide from individual slide file."""
-        with pytest.mock.patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
+        with patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
             mock_pres = Mock()
             mock_pres.slides = [Mock()]  # Single slide
             mock_pres.slide_width = 9144000
@@ -175,7 +175,7 @@ class TestPPTXParser:
     
     def test_get_presentation_metadata(self, sample_pptx_file):
         """Test getting individual slide file metadata."""
-        with pytest.mock.patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
+        with patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
             mock_pres = Mock()
             mock_pres.slides = [Mock()]  # Single slide
             mock_pres.slide_width = 9144000

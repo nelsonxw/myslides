@@ -211,7 +211,14 @@ class SlideClassifier:
             return False
         
         # Check if shapes are arranged in a horizontal line
-        y_positions = [shape.position.y for shape in similar_shapes]
+        y_positions = []
+        for shape in similar_shapes:
+            if hasattr(shape, 'position') and hasattr(shape.position, 'y') and isinstance(shape.position.y, (int, float)):
+                y_positions.append(shape.position.y)
+        
+        if len(y_positions) < 3:
+            return False
+        
         y_variance = max(y_positions) - min(y_positions)
         
         # If y positions are similar (within 10% of slide height), likely horizontal arrangement

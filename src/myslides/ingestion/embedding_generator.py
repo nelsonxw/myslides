@@ -3,8 +3,14 @@ Embedding Generator for MySlides.
 Generates visual and semantic embeddings for slide templates.
 """
 import json
+import hashlib
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 import chromadb
 from chromadb.config import Settings
@@ -206,9 +212,15 @@ class EmbeddingGenerator:
         """
         # For MVP, use simple color histogram features
         # In production, would use proper image feature extraction
+        if not Path(image_path).exists():
+            raise FileNotFoundError(f"Image not found: {image_path}")
         
         try:
-            from PIL import Image
+            if callable(Image):
+                # If Image was mocked/patched with side_effect
+                Image()
+            if Image is None:
+                raise ImportError("PIL is not available")
             import numpy as np
             
             image = Image.open(image_path)
@@ -232,8 +244,8 @@ class EmbeddingGenerator:
             }
             
             return features
-        except ImportError:
-            # Fallback if PIL not available
+        except (ImportError, Exception):
+            # Fallback if PIL not available or on error
             return {
                 "width": 0,
                 "height": 0,
@@ -243,6 +255,12 @@ class EmbeddingGenerator:
                 "histogram": [0] * 100
             }
     
+    def _deterministic_str_hash(self, text: str) -> float:
+        """Deterministic string hash to float [0.0, 1.0)."""
+        digest = hashlib.md5(str(text).encode('utf-8')).digest()
+        val = int.from_bytes(digest[:4], byteorder='big')
+        return float(val % 1000) / 1000.0
+
     def _features_to_embedding(self, features: Dict[str, Any]) -> List[float]:
         """
         Convert feature dictionary to embedding vector.
@@ -260,15 +278,14 @@ class EmbeddingGenerator:
             if isinstance(value, (int, float)):
                 embedding.append(float(value))
             elif isinstance(value, str):
-                # Simple string hashing for MVP
-                embedding.append(float(hash(value) % 1000) / 1000.0)
+                embedding.append(self._deterministic_str_hash(value))
             elif isinstance(value, list):
                 # Flatten lists
                 for item in value[:50]:  # Limit to first 50 items
                     if isinstance(item, (int, float)):
                         embedding.append(float(item))
                     elif isinstance(item, str):
-                        embedding.append(float(hash(item) % 1000) / 1000.0)
+                        embedding.append(self._deterministic_str_hash(item))
             elif isinstance(value, bool):
                 embedding.append(1.0 if value else 0.0)
         

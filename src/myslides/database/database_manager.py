@@ -17,7 +17,7 @@ class DatabaseManager:
     def __init__(self):
         """Initialize database manager."""
         self.engine = create_engine(settings.database_url)
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=self.engine)
         self._initialize_database()
     
     def _initialize_database(self) -> None:
@@ -39,7 +39,8 @@ class DatabaseManager:
     
     # Collection operations
     def create_collection(self, file_name: str, storage_path: str, 
-                          total_slides: int = 0, collection_metadata: Optional[Dict] = None) -> SlideCollection:
+                          total_slides: int = 0, collection_metadata: Optional[Dict] = None,
+                          metadata: Optional[Dict] = None) -> SlideCollection:
         """
         Create a new slide collection.
         
@@ -48,29 +49,23 @@ class DatabaseManager:
             storage_path: Firebase Storage path
             total_slides: Number of slides in the collection
             collection_metadata: Additional metadata
+            metadata: Alias for collection_metadata
         
         Returns:
             Created SlideCollection object
         """
-        session = self.SessionLocal()
-        try:
+        meta = collection_metadata if collection_metadata is not None else (metadata or {})
+        with self.get_session() as session:
             collection = SlideCollection(
                 file_name=file_name,
                 storage_path=storage_path,
                 total_slides=total_slides,
-                collection_metadata=collection_metadata or {}
+                collection_metadata=meta
             )
             session.add(collection)
-            session.commit()
+            session.flush()
             session.refresh(collection)
-            # Detach from session to prevent detached instance errors
-            session.expunge(collection)
             return collection
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
     
     def get_collection(self, collection_id: int) -> Optional[SlideCollection]:
         """

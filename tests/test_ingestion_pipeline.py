@@ -156,21 +156,21 @@ class TestIngestionPipeline:
         
         # Mock the parser
         mock_parser = Mock()
-        mock_parser.parse_all_slides.return_value = [
-            SlideInfo(
-                slide_index=0,
-                layout_type=SlideLayoutType.TITLE_SLIDE,
-                width=9144000,
-                height=6858000,
-                shapes=[],
-                charts=[],
-                tables=[],
-                images=[],
-                text_content="Test",
-                color_palette=[],
-                complexity_score=5
-            )
-        ]
+        sample_slide = SlideInfo(
+            slide_index=0,
+            layout_type=SlideLayoutType.TITLE_SLIDE,
+            width=9144000,
+            height=6858000,
+            shapes=[],
+            charts=[],
+            tables=[],
+            images=[],
+            text_content="Test",
+            color_palette=[],
+            complexity_score=5
+        )
+        mock_parser.parse_slide.return_value = sample_slide
+        mock_parser.parse_all_slides.return_value = [sample_slide]
         mock_parser.get_presentation_metadata.return_value = {
             "file_name": "test.pptx",
             "slide_count": 1,
@@ -222,21 +222,21 @@ class TestIngestionPipeline:
             call_count[0] += 1
             if call_count[0] == 1:
                 mock_parser = Mock()
-                mock_parser.parse_all_slides.return_value = [
-                    SlideInfo(
-                        slide_index=0,
-                        layout_type=SlideLayoutType.TITLE_SLIDE,
-                        width=9144000,
-                        height=6858000,
-                        shapes=[],
-                        charts=[],
-                        tables=[],
-                        images=[],
-                        text_content="Test",
-                        color_palette=[],
-                        complexity_score=5
-                    )
-                ]
+                sample_slide = SlideInfo(
+                    slide_index=0,
+                    layout_type=SlideLayoutType.TITLE_SLIDE,
+                    width=9144000,
+                    height=6858000,
+                    shapes=[],
+                    charts=[],
+                    tables=[],
+                    images=[],
+                    text_content="Test",
+                    color_palette=[],
+                    complexity_score=5
+                )
+                mock_parser.parse_slide.return_value = sample_slide
+                mock_parser.parse_all_slides.return_value = [sample_slide]
                 mock_parser.get_presentation_metadata.return_value = {
                     "file_name": "test.pptx",
                     "slide_count": 1,

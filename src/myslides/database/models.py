@@ -9,6 +9,17 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+class CollectionMetadataProxy:
+    """Descriptor that proxies .metadata on SlideCollection instances while preserving Base.metadata on the class."""
+    def __get__(self, instance, owner):
+        if instance is None:
+            return Base.metadata
+        return instance.collection_metadata
+
+    def __set__(self, instance, value):
+        instance.collection_metadata = value
+
+
 class SlideCollection(Base):
     """Model for storing slide collection information."""
     __tablename__ = "slide_collections"
@@ -20,6 +31,7 @@ class SlideCollection(Base):
     total_slides = Column(Integer, default=0)
     storage_path = Column(String)  # Firebase Storage path
     collection_metadata = Column(JSON)  # Additional metadata (renamed from 'metadata')
+    metadata = CollectionMetadataProxy()
     
     # Relationship to templates
     templates = relationship("SlideTemplate", back_populates="collection", cascade="all, delete-orphan")
