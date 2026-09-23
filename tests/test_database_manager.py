@@ -151,6 +151,49 @@ class TestDatabaseManager:
         assert retrieved is not None
         assert retrieved.id == template.id
         assert retrieved.classification == "title_slide"
+
+    def test_get_template_by_id_formats(self, db_manager):
+        """Test retrieving template by various string ID formats."""
+        collection = db_manager.create_collection("test.pptx", "collections/test.pptx", 5)
+        template_data = {
+            "collection_id": collection.id,
+            "slide_index": 0,
+            "classification": "title_slide",
+            "tags": ["title"],
+            "thumbnail_path": None,
+            "original_pptx_reference": "collections/test.pptx",
+            "element_manifest": {"template_id": "custom_tmpl_001"},
+            "placeholder_map": [],
+            "color_palette": [],
+            "complexity_score": 5,
+            "description": "Test",
+            "template_hash": "unique_hash_999"
+        }
+        template = db_manager.create_template(template_data)
+
+        # 1. By numeric string
+        by_num = db_manager.get_template_by_id(str(template.id))
+        assert by_num is not None
+        assert by_num.id == template.id
+
+        # 2. By composite key
+        composite_key = f"{collection.id}_slide_0"
+        by_composite = db_manager.get_template_by_id(composite_key)
+        assert by_composite is not None
+        assert by_composite.id == template.id
+
+        # 3. By template_hash
+        by_hash = db_manager.get_template_by_id("unique_hash_999")
+        assert by_hash is not None
+        assert by_hash.id == template.id
+
+        # 4. By manifest template_id
+        by_manifest = db_manager.get_template_by_id("custom_tmpl_001")
+        assert by_manifest is not None
+        assert by_manifest.id == template.id
+
+        # 5. Non-existent ID
+        assert db_manager.get_template_by_id("non_existent_key_xyz") is None
     
     def test_list_templates(self, db_manager):
         """Test listing templates."""

@@ -144,6 +144,51 @@ class DatabaseManager:
         with self.get_session() as session:
             return session.query(SlideTemplate).filter(SlideTemplate.id == template_id).first()
     
+    def get_template_by_id(self, template_id: str) -> Optional[SlideTemplate]:
+        """
+        Get a template by ID string or composite key.
+        Supports integer ID, "{collection_id}_slide_{slide_index}", template_hash,
+        or manifest template_id.
+
+        Args:
+            template_id: Template identifier
+
+        Returns:
+            SlideTemplate object or None
+        """
+        with self.get_session() as session:
+            # 1. Numeric primary key (e.g. 1 or "1")
+            if isinstance(template_id, int) or (isinstance(template_id, str) and template_id.isdigit()):
+                tmpl = session.query(SlideTemplate).filter(SlideTemplate.id == int(template_id)).first()
+                if tmpl:
+                    return tmpl
+
+            # 2. Composite key "{collection_id}_slide_{slide_index}"
+            if isinstance(template_id, str) and "_slide_" in template_id:
+                parts = template_id.split("_slide_")
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    coll_id = int(parts[0])
+                    slide_idx = int(parts[1])
+                    tmpl = session.query(SlideTemplate).filter(
+                        SlideTemplate.collection_id == coll_id,
+                        SlideTemplate.slide_index == slide_idx
+                    ).first()
+                    if tmpl:
+                        return tmpl
+
+            # 3. Check by template_hash
+            tmpl = session.query(SlideTemplate).filter(SlideTemplate.template_hash == str(template_id)).first()
+            if tmpl:
+                return tmpl
+
+            # 4. Fallback: search in element_manifest
+            templates = session.query(SlideTemplate).all()
+            for template in templates:
+                manifest = template.element_manifest or {}
+                if isinstance(manifest, dict) and manifest.get("template_id") == str(template_id):
+                    return template
+            return None
+    
     def list_templates(self, collection_id: Optional[int] = None, 
                       classification: Optional[str] = None) -> List[SlideTemplate]:
         """
