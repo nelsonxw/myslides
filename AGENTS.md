@@ -16,8 +16,9 @@ MySlides is an AI-powered slide builder that ingests PowerPoint presentations, c
 
 - Python Tests: `python run_tests.py` or `python -m pytest tests/ -v`
 - Install Dependencies: `pip install -r requirements.txt`
-- Run Application: (To be implemented)
-- Seed Library: (To be implemented)
+- Run Backend API: `$env:PYTHONPATH="src"; python -m uvicorn myslides.api.main:app --host 0.0.0.0 --port 8000`
+- Run Frontend UI: `cd frontend; npm.cmd run dev`
+- Build Frontend: `cd frontend; npm.cmd run build`
 
 ## Clean Code & Project Rules
 
@@ -28,7 +29,7 @@ MySlides is an AI-powered slide builder that ingests PowerPoint presentations, c
 - Write comprehensive tests for all modules before proceeding to next module
 - Follow the MVP scope defined in requirements.md for initial implementation
 
-## Development Priorities
+## Development Priorities & Completion Status
 
 1. **Module 1 (COMPLETED)**: Ingestion Pipeline
    - PPTX parsing with python-pptx ✅
@@ -37,28 +38,29 @@ MySlides is an AI-powered slide builder that ingests PowerPoint presentations, c
    - Visual/semantic embedding generation ✅
    - Comprehensive tests ✅
 
-2. **Module 2 (NEXT)**: Generation Engine
-   - Template-based slide assembly
-   - Chart generation (bar, pie, line)
-   - Diagram generation (process, timeline)
-   - Style inheritance
-   - PPTX export
+2. **Module 4 (COMPLETED)**: Generation Engine
+   - Template-based slide assembly ✅
+   - Chart generation (bar, pie, line) ✅
+   - Diagram generation (process, timeline) ✅
+   - Style inheritance ✅
+   - PPTX export ✅
 
-3. **Module 3**: LLM Integration
-   - Prompt parsing and intent extraction
-   - Multi-slide prompt support
-   - Contextual follow-up
+3. **Module 2 (COMPLETED)**: Prompt Interpretation Engine (LLM Integration)
+   - Natural language prompt parsing with Dell Dev GenAI & OpenAI ✅
+   - Multi-slide deck planning ✅
+   - Contextual follow-up conversation manager ✅
 
-4. **Module 4**: Template Matching & Suggestion
-   - Vector search implementation
-   - Template retrieval and ranking
-   - Adaptive element count
+4. **Module 3 (COMPLETED)**: Template Matching & Suggestion
+   - ChromaDB vector search ✅
+   - Template ranking strategies & filters ✅
+   - Adaptive element count matching ✅
 
-5. **Module 5**: User Interface
-   - Upload interface
-   - Prompt interface
-   - Suggestion & preview panel
-   - Deck builder
+5. **Module 5 (COMPLETED - MVP)**: User Interface
+   - FastAPI REST API backend (`myslides.api.main`) ✅
+   - Upload interface component (FR-5.1) ✅
+   - Prompt interface component (FR-5.2) ✅
+   - Suggestion & preview panel (FR-5.3) ✅
+   - React + Vite web client ✅
 
 ## Module 1 Implementation Details
 

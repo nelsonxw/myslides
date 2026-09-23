@@ -2,7 +2,7 @@
 Database Manager for MySlides.
 Handles database operations for collections, templates, and generation requests.
 """
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from contextlib import contextmanager
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker, Session
@@ -80,12 +80,16 @@ class DatabaseManager:
         with self.get_session() as session:
             return session.query(SlideCollection).filter(SlideCollection.id == collection_id).first()
     
-    def list_collections(self, user_id: Optional[str] = None) -> List[SlideCollection]:
+    def list_collections(self, user_id: Optional[str] = None,
+                         skip: int = 0,
+                         limit: Optional[int] = None) -> List[SlideCollection]:
         """
         List all collections, optionally filtered by user.
         
         Args:
             user_id: Optional user ID for filtering
+            skip: Number of records to skip
+            limit: Maximum number of records to return
         
         Returns:
             List of SlideCollection objects
@@ -94,7 +98,12 @@ class DatabaseManager:
             query = session.query(SlideCollection)
             if user_id:
                 query = query.filter(SlideCollection.user_id == user_id)
-            return query.order_by(SlideCollection.upload_date.desc()).all()
+            query = query.order_by(SlideCollection.upload_date.desc())
+            if skip > 0:
+                query = query.offset(skip)
+            if limit is not None:
+                query = query.limit(limit)
+            return query.all()
     
     def delete_collection(self, collection_id: int) -> bool:
         """
@@ -190,13 +199,17 @@ class DatabaseManager:
             return None
     
     def list_templates(self, collection_id: Optional[int] = None, 
-                      classification: Optional[str] = None) -> List[SlideTemplate]:
+                      classification: Optional[str] = None,
+                      skip: int = 0,
+                      limit: Optional[int] = None) -> List[SlideTemplate]:
         """
         List templates, optionally filtered by collection or classification.
         
         Args:
             collection_id: Optional collection ID for filtering
             classification: Optional classification for filtering
+            skip: Number of records to skip
+            limit: Maximum number of records to return
         
         Returns:
             List of SlideTemplate objects
@@ -207,7 +220,28 @@ class DatabaseManager:
                 query = query.filter(SlideTemplate.collection_id == collection_id)
             if classification:
                 query = query.filter(SlideTemplate.classification == classification)
-            return query.order_by(SlideTemplate.created_at.desc()).all()
+            query = query.order_by(SlideTemplate.created_at.desc())
+            if skip > 0:
+                query = query.offset(skip)
+            if limit is not None:
+                query = query.limit(limit)
+            return query.all()
+
+    def list_templates_by_classification(self, classification: str,
+                                         skip: int = 0,
+                                         limit: Optional[int] = None) -> List[SlideTemplate]:
+        """
+        List templates filtered by classification.
+
+        Args:
+            classification: Slide classification string
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+
+        Returns:
+            List of SlideTemplate objects
+        """
+        return self.list_templates(classification=classification, skip=skip, limit=limit)
     
     def update_template(self, template_id: int, update_data: Dict[str, Any]) -> Optional[SlideTemplate]:
         """
@@ -285,22 +319,44 @@ class DatabaseManager:
             ).all()
     
     # Generation request operations
-    def create_generation_request(self, prompt_text: str, user_id: Optional[str] = None) -> GenerationRequest:
+    def create_generation_request(self,
+                                  prompt_text: Union[str, Dict[str, Any]],
+                                  user_id: Optional[str] = None,
+                                  **kwargs) -> GenerationRequest:
         """
-        Create a new generation request.
+        Create a new generation request. Supports dictionary data or argument values.
         
         Args:
-            prompt_text: User's prompt text
+            prompt_text: User's prompt text or dictionary containing request attributes
             user_id: Optional user ID
+            **kwargs: Additional request fields (parsed_intent, status, etc.)
         
         Returns:
             Created GenerationRequest object
         """
         with self.get_session() as session:
-            request = GenerationRequest(
-                prompt_text=prompt_text,
-                user_id=user_id
-            )
+            if isinstance(prompt_text, dict):
+                data = dict(prompt_text)
+                data.update(kwargs)
+                user = str(data.get("user_id")) if data.get("user_id") is not None else user_id
+                request = GenerationRequest(
+                    user_id=user,
+                    prompt_text=data.get("prompt_text", ""),
+                    parsed_intent=data.get("parsed_intent"),
+                    matched_template_ids=data.get("matched_template_ids"),
+                    selected_template_id=data.get("selected_template_id"),
+                    generated_file_path=data.get("generated_file_path"),
+                    status=data.get("status", "pending"),
+                    error_message=data.get("error_message"),
+                    processing_time_seconds=data.get("processing_time_seconds")
+                )
+            else:
+                user = str(user_id) if user_id is not None else None
+                request = GenerationRequest(
+                    prompt_text=prompt_text,
+                    user_id=user,
+                    **kwargs
+                )
             session.add(request)
             session.flush()
             session.refresh(request)
@@ -362,24 +418,42 @@ class DatabaseManager:
             return query.order_by(GenerationRequest.timestamp.desc()).all()
     
     # Generated deck operations
-    def create_deck(self, title: str, slides: List[int], user_id: Optional[str] = None) -> GeneratedDeck:
+    def create_deck(self,
+                    title: Union[str, Dict[str, Any]],
+                    slides: Optional[List[int]] = None,
+                    user_id: Optional[str] = None,
+                    **kwargs) -> GeneratedDeck:
         """
-        Create a new generated deck.
+        Create a new generated deck. Supports dictionary or parameter inputs.
         
         Args:
-            title: Deck title
+            title: Deck title or dictionary containing deck attributes
             slides: Ordered list of generation request IDs
             user_id: Optional user ID
+            **kwargs: Additional fields
         
         Returns:
             Created GeneratedDeck object
         """
         with self.get_session() as session:
-            deck = GeneratedDeck(
-                title=title,
-                slides=slides,
-                user_id=user_id
-            )
+            if isinstance(title, dict):
+                data = dict(title)
+                data.update(kwargs)
+                user = str(data.get("user_id")) if data.get("user_id") is not None else user_id
+                deck = GeneratedDeck(
+                    title=data.get("title", "Untitled Deck"),
+                    slides=data.get("slides", []),
+                    user_id=user,
+                    export_file_path=data.get("export_file_path")
+                )
+            else:
+                user = str(user_id) if user_id is not None else None
+                deck = GeneratedDeck(
+                    title=title,
+                    slides=slides or [],
+                    user_id=user,
+                    **kwargs
+                )
             session.add(deck)
             session.flush()
             session.refresh(deck)
