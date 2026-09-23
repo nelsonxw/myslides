@@ -48,18 +48,21 @@ def test_pptx_parser():
         print("No test PPTX file found. Creating a simple test...")
         # For demonstration, we'll just show the parser structure
         print("PPTX Parser structure:")
-        print("- PPTXParser: Parses PPTX files and extracts slide information")
+        print("- PPTXParser: Parses individual PPTX slide files")
         print("- Extracts: shapes, charts, tables, images, text, styling")
         print("- Supports: layout detection, complexity scoring")
+        print("- Optimized for individual slide files (not full presentations)")
         return True
     
     try:
         parser = PPTXParser(test_file)
-        slides = parser.parse_all_slides()
+        slide = parser.parse_slide()  # Parse single slide
         metadata = parser.get_presentation_metadata()
         
-        print(f"Parsed {len(slides)} slides from {test_file.name}")
-        print(f"Presentation metadata: {metadata}")
+        print(f"Parsed individual slide from {test_file.name}")
+        print(f"Slide metadata: {metadata}")
+        print(f"Slide classification: {slide.layout_type}")
+        print(f"Complexity score: {slide.complexity_score}")
         return True
     except Exception as e:
         print(f"Error parsing PPTX: {e}")

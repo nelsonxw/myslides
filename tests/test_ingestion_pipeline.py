@@ -45,26 +45,24 @@ class TestIngestionPipeline:
     @patch('myslides.ingestion.ingestion_pipeline.PPTXParser')
     def test_ingest_pptx_file_success(self, mock_parser_class, pipeline, sample_pptx_file):
         """Test successful PPTX file ingestion."""
-        # Mock the parser
+        # Mock the parser for individual slide
         mock_parser = Mock()
-        mock_parser.parse_all_slides.return_value = [
-            SlideInfo(
-                slide_index=0,
-                layout_type=SlideLayoutType.TITLE_SLIDE,
-                width=9144000,
-                height=6858000,
-                shapes=[],
-                charts=[],
-                tables=[],
-                images=[],
-                text_content="Test Title",
-                color_palette=["#FF0000"],
-                complexity_score=5
-            )
-        ]
+        mock_parser.parse_slide.return_value = SlideInfo(
+            slide_index=0,
+            layout_type=SlideLayoutType.TITLE_SLIDE,
+            width=9144000,
+            height=6858000,
+            shapes=[],
+            charts=[],
+            tables=[],
+            images=[],
+            text_content="Test Title",
+            color_palette=["#FF0000"],
+            complexity_score=5
+        )
         mock_parser.get_presentation_metadata.return_value = {
             "file_name": sample_pptx_file.name,
-            "slide_count": 1,
+            "slide_count": 1,  # Individual slides always have 1 slide
             "width": 9144000,
             "height": 6858000
         }
@@ -92,7 +90,7 @@ class TestIngestionPipeline:
                     )
         
         assert result["success"] is True
-        assert result["slides_processed"] == 1
+        assert result["slides_processed"] == 1  # Individual slides always have 1 slide
         assert result["templates_created"] == 1
         assert result["collection_id"] is not None
     

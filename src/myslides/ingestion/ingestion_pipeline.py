@@ -55,12 +55,13 @@ class IngestionPipeline:
         }
         
         try:
-            # Step 1: Parse PPTX file
+            # Step 1: Parse PPTX file (individual slide)
             parser = PPTXParser(local_pptx_path)
-            slides_info = parser.parse_all_slides()
+            slide_info = parser.parse_slide(slide_index=0)  # Individual slides always have index 0
+            slides_info = [slide_info]
             presentation_metadata = parser.get_presentation_metadata()
             
-            results["slides_processed"] = len(slides_info)
+            results["slides_processed"] = 1  # Individual slides always have 1 slide
             
             # Step 2: Upload PPTX to Firebase Storage
             pptx_storage_info = self.storage_service.upload_pptx(
@@ -83,7 +84,7 @@ class IngestionPipeline:
             
             results["collection_id"] = collection.id
             
-            # Step 4: Process each slide
+            # Step 4: Process the single slide
             for slide_info in slides_info:
                 try:
                     # Generate thumbnail if requested
@@ -91,7 +92,7 @@ class IngestionPipeline:
                     if generate_thumbnails:
                         thumbnail_path = self._generate_slide_thumbnail(
                             local_pptx_path, 
-                            slide_info.slide_index,
+                            0,  # Individual slides always have index 0
                             collection_name
                         )
                         
@@ -100,9 +101,9 @@ class IngestionPipeline:
                             thumbnail_storage_info = self.storage_service.upload_thumbnail(
                                 local_path=thumbnail_path,
                                 collection_name=collection_name,
-                                slide_index=slide_info.slide_index,
+                                slide_index=0,  # Individual slides always have index 0
                                 associated_pptx_id=pptx_storage_info.id,
-                                metadata={"slide_index": slide_info.slide_index}
+                                metadata={"slide_index": 0}
                             )
                             thumbnail_path = thumbnail_storage_info.storage_path
                     
@@ -132,7 +133,7 @@ class IngestionPipeline:
                     # Create database template record
                     template_data = {
                         "collection_id": collection.id,
-                        "slide_index": slide_info.slide_index,
+                        "slide_index": 0,  # Individual slides always have index 0
                         "classification": template.classification,
                         "tags": template.tags,
                         "thumbnail_path": template.thumbnail_path,

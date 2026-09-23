@@ -380,14 +380,14 @@ class SlideInfo:
 
 
 class PPTXParser:
-    """Parser for extracting comprehensive information from PPTX files."""
+    """Parser for extracting comprehensive information from individual PPTX slide files."""
     
     def __init__(self, pptx_path: Path | str):
         """
-        Initialize PPTX parser.
+        Initialize PPTX parser for individual slide file.
         
         Args:
-            pptx_path: Path to the PPTX file
+            pptx_path: Path to the individual PPTX slide file
         """
         self.pptx_path = Path(pptx_path)
         if not self.pptx_path.exists():
@@ -395,32 +395,22 @@ class PPTXParser:
         
         self.presentation = Presentation(str(self.pptx_path))
     
-    def parse_all_slides(self) -> List[SlideInfo]:
+    def parse_slide(self, slide_index: int = 0) -> SlideInfo:
         """
-        Parse all slides in the presentation.
-        
-        Returns:
-            List of SlideInfo objects for each slide
-        """
-        slides_info = []
-        
-        for slide_index, slide in enumerate(self.presentation.slides):
-            slide_info = self.parse_slide(slide, slide_index)
-            slides_info.append(slide_info)
-        
-        return slides_info
-    
-    def parse_slide(self, slide, slide_index: int) -> SlideInfo:
-        """
-        Parse a single slide.
+        Parse the single slide in the PPTX file.
         
         Args:
-            slide: pptx slide object
-            slide_index: Index of the slide in the presentation
+            slide_index: Index for the slide (default 0 for individual slides)
         
         Returns:
             SlideInfo object with comprehensive slide information
         """
+        # Get the first (and only) slide from the presentation
+        if len(self.presentation.slides) == 0:
+            raise ValueError("No slides found in the PPTX file")
+        
+        slide = self.presentation.slides[0]
+        
         # Get slide dimensions
         width = self.presentation.slide_width
         height = self.presentation.slide_height
@@ -570,15 +560,15 @@ class PPTXParser:
     
     def get_presentation_metadata(self) -> dict[str, Any]:
         """
-        Get metadata about the entire presentation.
+        Get metadata about the individual slide file.
         
         Returns:
-            Dictionary with presentation metadata
+            Dictionary with slide file metadata
         """
         return {
             "file_path": str(self.pptx_path),
             "file_name": self.pptx_path.name,
-            "slide_count": len(self.presentation.slides),
+            "slide_count": 1,  # Individual slides always have 1 slide
             "width": self.presentation.slide_width,
             "height": self.presentation.slide_height,
         }

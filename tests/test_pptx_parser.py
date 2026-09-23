@@ -157,25 +157,27 @@ class TestPPTXParser:
         with pytest.raises(FileNotFoundError):
             PPTXParser("nonexistent.pptx")
     
-    def test_parse_all_slides_empty_presentation(self, sample_pptx_file):
-        """Test parsing all slides from empty presentation."""
+    def test_parse_single_slide(self, sample_pptx_file):
+        """Test parsing single slide from individual slide file."""
         with pytest.mock.patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
             mock_pres = Mock()
-            mock_pres.slides = []
+            mock_pres.slides = [Mock()]  # Single slide
             mock_pres.slide_width = 9144000
             mock_pres.slide_height = 6858000
             mock_presentation_class.return_value = mock_pres
             
             parser = PPTXParser(sample_pptx_file)
-            slides = parser.parse_all_slides()
+            slide = parser.parse_slide()
             
-            assert len(slides) == 0
+            assert slide.slide_index == 0
+            assert slide.width == 9144000
+            assert slide.height == 6858000
     
     def test_get_presentation_metadata(self, sample_pptx_file):
-        """Test getting presentation metadata."""
+        """Test getting individual slide file metadata."""
         with pytest.mock.patch('myslides.ingestion.pptx_parser.Presentation') as mock_presentation_class:
             mock_pres = Mock()
-            mock_pres.slides = [Mock(), Mock(), Mock()]  # 3 slides
+            mock_pres.slides = [Mock()]  # Single slide
             mock_pres.slide_width = 9144000
             mock_pres.slide_height = 6858000
             mock_presentation_class.return_value = mock_pres
@@ -184,7 +186,7 @@ class TestPPTXParser:
             metadata = parser.get_presentation_metadata()
             
             assert metadata["file_name"] == sample_pptx_file.name
-            assert metadata["slide_count"] == 3
+            assert metadata["slide_count"] == 1  # Individual slides always have 1 slide
             assert metadata["width"] == 9144000
             assert metadata["height"] == 6858000
     
