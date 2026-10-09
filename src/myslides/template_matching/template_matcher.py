@@ -126,11 +126,18 @@ class TemplateMatcher:
             template_embedding = template.semantic_embedding
             element_count = self._extract_element_count(template, intent.slide_type)
 
+            template_slide_type = None
+            if template.classification:
+                try:
+                    template_slide_type = SlideType(template.classification)
+                except ValueError:
+                    template_slide_type = SlideType.MIXED
+
             similarity = self.similarity_calculator.calculate_similarity(
                 query_embedding=query_embedding,
                 template_embedding=template_embedding,
                 query_slide_type=intent.slide_type,
-                template_slide_type=SlideType(template.classification) if template.classification else None,
+                template_slide_type=template_slide_type,
                 query_element_count=self._extract_desired_element_count(intent),
                 template_element_count=element_count,
                 template_metadata={

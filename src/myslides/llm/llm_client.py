@@ -27,6 +27,7 @@ class AuthSettings:
 
 class LLMProvider(Enum):
     """Supported LLM providers."""
+    GEMINI = "gemini"
     DELL_GENAI = "dell_genai"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -63,7 +64,11 @@ class LLMClient:
 
     def _auto_detect_provider(self) -> LLMProvider:
         """Auto-detect the best available provider based on credentials."""
-        # Check for Dell GenAI credentials first
+        # Check for Gemini API key first if configured
+        if settings.gemini_api_key or os.getenv("GEMINI_API_KEY"):
+            return LLMProvider.GEMINI
+
+        # Check for Dell GenAI credentials
         if (settings.llm_client_id and settings.llm_client_secret) or \
            (os.getenv("CLIENT_ID") and os.getenv("CLIENT_SECRET")):
             return LLMProvider.DELL_GENAI
@@ -78,24 +83,12 @@ class LLMClient:
 
         # Default to Dell GenAI (will fail if no credentials)
         return LLMProvider.DELL_GENAI
-        """
-        Initialize LLM client.
-
-        Args:
-            provider: The LLM provider to use (Dell GenAI, OpenAI, or Anthropic)
-            api_key: Optional API key override (defaults to settings)
-            auth_settings: Optional auth settings for Dell GenAI
-        """
-        self.provider = provider
-        self.api_key = api_key or self._get_default_api_key()
-        self.auth_settings = auth_settings or self._get_auth_settings()
-        self._client = None
-        self._http_client = None
-        self._initialize_client()
 
     def _get_default_api_key(self) -> Optional[str]:
         """Get default API key from settings based on provider."""
-        if self.provider == LLMProvider.OPENAI:
+        if self.provider == LLMProvider.GEMINI:
+            return settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
+        elif self.provider == LLMProvider.OPENAI:
             return settings.openai_api_key
         elif self.provider == LLMProvider.ANTHROPIC:
             return settings.anthropic_api_key
@@ -128,7 +121,9 @@ class LLMClient:
 
     def _initialize_client(self) -> None:
         """Initialize the appropriate client based on provider."""
-        if self.provider == LLMProvider.DELL_GENAI:
+        if self.provider == LLMProvider.GEMINI:
+            self._initialize_gemini()
+        elif self.provider == LLMProvider.DELL_GENAI:
             self._initialize_dell_genai()
         elif self.provider == LLMProvider.OPENAI:
             self._initialize_openai()
@@ -136,6 +131,12 @@ class LLMClient:
             self._initialize_anthropic()
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
+
+    def _initialize_gemini(self) -> None:
+        """Initialize Google Gemini client."""
+        if not self.api_key:
+            raise ValueError("API key not provided for Gemini. Set GEMINI_API_KEY in .env")
+        self._http_client = httpx.Client(timeout=60.0)
 
     def _initialize_dell_genai(self) -> None:
         """Initialize Dell Dev GenAI client with authentication."""
@@ -205,7 +206,7 @@ class LLMClient:
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 1000,
+        max_tokens: int = 3000,
         json_mode: bool = False
     ) -> str:
         """
@@ -221,7 +222,11 @@ class LLMClient:
         Returns:
             The generated text response
         """
-        if self.provider == LLMProvider.DELL_GENAI:
+        if self.provider == LLMProvider.GEMINI:
+            return self._gemini_completion(
+                prompt, system_prompt, temperature, max_tokens, json_mode
+            )
+        elif self.provider == LLMProvider.DELL_GENAI:
             return self._dell_genai_completion(
                 prompt, system_prompt, temperature, max_tokens, json_mode
             )
@@ -235,6 +240,88 @@ class LLMClient:
             )
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
+
+    def _gemini_completion(
+        self,
+        prompt: str,
+        system_prompt: Optional[str],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool
+    ) -> str:
+        """Generate completion using Google Gemini REST API with demand spike fallback."""
+        primary_model = settings.gemini_model or "gemini-3.8-flash"
+        candidate_models = [primary_model]
+        if primary_model != "gemini-3.5-flash-lite":
+            candidate_models.append("gemini-3.5-flash-lite")
+
+        last_error = None
+        for model in candidate_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+
+            payload: Dict[str, Any] = {
+                "contents": [
+                    {
+                        "parts": [{"text": prompt}]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens,
+                }
+            }
+
+            if system_prompt:
+                payload["systemInstruction"] = {
+                    "parts": [{"text": system_prompt}]
+                }
+
+            if json_mode:
+                payload["generationConfig"]["responseMimeType"] = "application/json"
+
+            try:
+                response = self._http_client.post(url, json=payload, timeout=20.0)
+                if response.status_code == 200:
+                    data = response.json()
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        return ""
+                    content = candidates[0].get("content", {})
+                    parts = content.get("parts", [])
+                    return parts[0].get("text", "") if parts else ""
+                elif response.status_code in (503, 429) and model != candidate_models[-1]:
+                    # Temporary demand spike on this model, fallback to next candidate
+                    continue
+                else:
+                    last_error = f"Gemini API error ({response.status_code}): {response.text}"
+            except Exception as e:
+                last_error = str(e)
+                if model != candidate_models[-1]:
+                    continue
+
+        raise RuntimeError(last_error or "Gemini API failed")
+
+    def generate_embedding(self, text: str, dimension: int = 384) -> List[float]:
+        """Generate vector embedding for text using configured provider."""
+        if self.provider == LLMProvider.GEMINI:
+            model = settings.gemini_embedding_model or "text-embedding-004"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent?key={self.api_key}"
+            payload = {
+                "model": f"models/{model}",
+                "content": {
+                    "parts": [{"text": text}]
+                },
+                "outputDimensionality": dimension
+            }
+            response = self._http_client.post(url, json=payload)
+            if response.status_code != 200:
+                raise RuntimeError(f"Gemini Embedding error ({response.status_code}): {response.text}")
+            data = response.json()
+            values = data.get("embedding", {}).get("values", [])
+            if len(values) > dimension:
+                values = values[:dimension]
+            return values
+        raise NotImplementedError(f"Embeddings not supported for provider: {self.provider}")
 
     def _dell_genai_completion(
         self,
@@ -316,7 +403,7 @@ class LLMClient:
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.3,
-        max_tokens: int = 1000
+        max_tokens: int = 3000
     ) -> Dict[str, Any]:
         """
         Generate a JSON completion from the LLM.
@@ -354,7 +441,17 @@ class LLMClient:
         try:
             return json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse LLM response as JSON: {e}\nResponse: {response}")
+            # Attempt to repair truncated JSON (common when LLM hits max_tokens)
+            repaired = text.rstrip()
+            if repaired.count('"') % 2 == 1:
+                repaired += '"'
+            open_brackets = repaired.count('[') - repaired.count(']')
+            open_braces = repaired.count('{') - repaired.count('}')
+            repaired += (']' * max(0, open_brackets)) + ('}' * max(0, open_braces))
+            try:
+                return json.loads(repaired)
+            except Exception:
+                raise ValueError(f"Failed to parse LLM response as JSON: {e}\nResponse: {response}")
 
     def __enter__(self):
         """Context manager entry."""

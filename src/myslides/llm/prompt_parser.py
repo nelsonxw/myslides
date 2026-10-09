@@ -4,13 +4,17 @@ Prompt Parser for MySlides.
 Converts natural language prompts into structured GenerationIntent objects
 using LLM-based intent extraction.
 """
-from typing import Optional, Dict, Any
+import logging
+import re
+from typing import Optional, Dict, Any, List
 from myslides.llm.llm_client import LLMClient, LLMProvider
 from myslides.generation.generation_models import (
     GenerationIntent,
     SlideType,
     ChartSubType,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PromptParser:
@@ -75,14 +79,72 @@ Respond with valid JSON only, no additional text."""
         """
         user_prompt = self._build_user_prompt(prompt)
         
-        response = self.llm_client.generate_json_completion(
-            prompt=user_prompt,
-            system_prompt=self.system_prompt,
-            temperature=0.3,
-            max_tokens=1000
-        )
+        if self.llm_client:
+            try:
+                response = self.llm_client.generate_json_completion(
+                    prompt=user_prompt,
+                    system_prompt=self.system_prompt,
+                    temperature=0.3,
+                    max_tokens=3000
+                )
+                return self._response_to_intent(response)
+            except Exception as e:
+                logger.warning("LLM prompt parsing failed (%s), using heuristic fallback", e)
+
+        return self._fallback_parse_prompt(prompt)
+
+    def _fallback_parse_prompt(self, prompt: str) -> GenerationIntent:
+        """Heuristically extract structured intent when LLM is unavailable or output is invalid."""
+        lower = prompt.lower()
         
-        return self._response_to_intent(response)
+        # Detect slide type
+        if any(w in lower for w in ["table", "grid", "tabular"]):
+            slide_type = SlideType.TABLE_VIEW
+        elif any(w in lower for w in ["process", "step", "workflow", "stage", "funnel", "cycle"]):
+            slide_type = SlideType.PROCESS_FLOW
+        elif any(w in lower for w in ["timeline", "roadmap", "milestone", "schedule", "quarter"]):
+            slide_type = SlideType.TIMELINE
+        elif any(w in lower for w in ["compare", "comparison", "vs", "versus"]):
+            slide_type = SlideType.COMPARISON
+        elif any(w in lower for w in ["chart", "graph", "metric", "revenue", "sales", "kpi"]):
+            slide_type = SlideType.DATA_CHART
+        elif any(w in lower for w in ["title", "cover"]):
+            slide_type = SlideType.TITLE_SLIDE
+        else:
+            slide_type = SlideType.TEXT_HEAVY
+        
+        # Extract title if formatted as Title: ...
+        title = "Generated Slide"
+        title_match = re.search(r"Title:\s*([^.\n;]+)", prompt, re.IGNORECASE)
+        if title_match:
+            title = title_match.group(1).strip()
+        else:
+            first_line = prompt.strip().split("\n")[0]
+            if len(first_line) < 60:
+                title = first_line
+
+        # Extract items/points if formatted
+        items = []
+        points_match = re.search(r"(?:Points|Content|Items):\s*(.+)", prompt, re.IGNORECASE | re.DOTALL)
+        if points_match:
+            raw_pts = points_match.group(1).strip()
+            items = [p.strip() for p in re.split(r"[;\n]", raw_pts) if p.strip()]
+
+        content: Dict[str, Any] = {"title": title}
+        if items:
+            if slide_type == SlideType.PROCESS_FLOW:
+                content["steps"] = [{"label": pt, "number": i+1} for i, pt in enumerate(items)]
+            elif slide_type == SlideType.TIMELINE:
+                content["events"] = [{"title": pt, "date": f"Phase {i+1}"} for i, pt in enumerate(items)]
+            else:
+                content["items"] = items
+                content["bullet_points"] = items
+
+        return GenerationIntent(
+            slide_type=slide_type,
+            content=content,
+            tone="professional"
+        )
     
     def _build_user_prompt(self, prompt: str) -> str:
         """Build the user prompt for the LLM."""

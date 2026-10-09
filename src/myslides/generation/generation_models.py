@@ -10,6 +10,7 @@ from enum import Enum
 class SlideType(Enum):
     """Enumeration of slide types for generation."""
     TITLE_SLIDE = "title_slide"
+    AGENDA = "agenda"
     CONTENT_SLIDE = "content_slide"
     SECTION_HEADER = "section_header"
     TEXT_HEAVY = "text_heavy"
@@ -133,7 +134,7 @@ class GenerationIntent:
     
     def get_timeline_events(self) -> List[TimelineEvent]:
         """Extract timeline events if present."""
-        if "events" in self.content:
+        if "events" in self.content and isinstance(self.content["events"], list):
             events = []
             for event in self.content["events"]:
                 if isinstance(event, dict):
@@ -143,6 +144,34 @@ class GenerationIntent:
                         description=event.get("description")
                     ))
             return events
+        elif "milestones" in self.content and isinstance(self.content["milestones"], list):
+            events = []
+            for m in self.content["milestones"]:
+                if isinstance(m, dict):
+                    events.append(TimelineEvent(
+                        date=m.get("date", ""),
+                        title=m.get("label", "") or m.get("title", ""),
+                        description=m.get("description")
+                    ))
+            return events
+        elif "items" in self.content and isinstance(self.content["items"], list):
+            events = []
+            for i, item in enumerate(self.content["items"][:5], 1):
+                item_str = str(item).strip()
+                parts = item_str.split(":", 1)
+                if len(parts) == 2:
+                    events.append(TimelineEvent(
+                        date=f"Phase {i}",
+                        title=parts[0].strip(),
+                        description=parts[1].strip()[:140]
+                    ))
+                else:
+                    events.append(TimelineEvent(
+                        date=f"Milestone {i}",
+                        title=item_str[:35],
+                        description=item_str[:140]
+                    ))
+            return events
         return []
 
 
@@ -150,6 +179,8 @@ class GenerationIntent:
 class GenerationConfig:
     """Configuration for slide generation."""
     template_id: Optional[str] = None
+    template_pptx_path: Optional[str] = None
+    template_storage_path: Optional[str] = None
     template_element_manifest: Optional[Dict[str, Any]] = None
     template_color_palette: Optional[List[str]] = None
     output_path: str = "generated_slide.pptx"

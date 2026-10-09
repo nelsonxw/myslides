@@ -20,13 +20,46 @@ from myslides.ingestion.pptx_parser import (
 )
 
 
+from myslides.llm.llm_client import LLMProvider
+
+
 class TestSlideClassifier:
     """Tests for SlideClassifier class."""
     
     @pytest.fixture
     def classifier(self):
-        """Create a SlideClassifier instance."""
-        return SlideClassifier()
+        """Create a SlideClassifier instance with mocked LLM to preserve Gemini quota and guarantee fast, deterministic tests."""
+        classifier = SlideClassifier()
+        mock_llm = Mock()
+        mock_llm.provider = LLMProvider.GEMINI
+
+        def mock_generate_completion(prompt, system_prompt=None, temperature=0.1, max_tokens=30, json_mode=False):
+            p = prompt.lower()
+            if "title_slide" in p or "main title" in p:
+                return "title_slide"
+            if "agenda" in p:
+                return "agenda"
+            if "charts: 3" in p or "charts: 4" in p:
+                return "dashboard"
+            if "charts:" in p or "chart" in p:
+                return "data_chart"
+            if "tables:" in p:
+                return "table_view"
+            if "images:" in p:
+                return "image_showcase"
+            if "step" in p or "process" in p:
+                return "process_flow"
+            if "timeline" in p:
+                return "timeline"
+            if "comparison" in p or "pros and cons" in p:
+                return "comparison"
+            if "lorem ipsum" in p or "text length" in p:
+                return "text_heavy"
+            return "mixed"
+
+        mock_llm.generate_completion.side_effect = mock_generate_completion
+        classifier._llm_client = mock_llm
+        return classifier
     
     @pytest.fixture
     def basic_slide_info(self):

@@ -23,8 +23,7 @@ def _load_env_files() -> None:
     ]
     for env_path in candidate_paths:
         if env_path.exists():
-            load_dotenv(env_path, override=True)
-            break
+            load_dotenv(env_path, override=False)
 
 _load_env_files()
 
@@ -43,6 +42,11 @@ class Settings(BaseSettings):
     firebase_verify_ssl: bool = False
     firebase_ca_bundle: Optional[str] = None
     
+    # LLM Settings - Google Gemini
+    gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
+    gemini_embedding_model: str = Field(default="text-embedding-004", alias="GEMINI_EMBEDDING_MODEL")
+
     # LLM Settings - Dell Dev GenAI Gateway
     llm_base_url: str = "https://aia.gateway.dell.com/genai/dev/v1"
     llm_client_id: Optional[str] = Field(default=None, alias="CLIENT_ID")
@@ -84,6 +88,7 @@ class Settings(BaseSettings):
         default_paths = [
             Path(__file__).parent.parent.parent / "serviceAccountKey.json",
             Path(__file__).parent.parent.parent.parent / "slide_scrapper" / "backend" / "serviceAccountKey.json",
+            Path(__file__).parent.parent.parent.parent / "firebase storage" / "serviceAccountKey.json",
             Path.home() / ".config" / "myslides" / "serviceAccountKey.json",
         ]
         

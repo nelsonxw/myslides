@@ -320,6 +320,41 @@ class FirebaseStorageService:
         
         return files
     
+    def list_curated_slides(self, prefix: str = "curated slides/") -> list[dict[str, Any]]:
+        """
+        List all curated PowerPoint slides from Firebase Storage.
+        
+        Args:
+            prefix: Storage folder prefix for curated slides
+            
+        Returns:
+            List of curated slide information dictionaries
+        """
+        if not self.is_connected or not self.bucket:
+            return []
+        
+        slides = []
+        try:
+            blobs = self.bucket.list_blobs(prefix=prefix)
+            for blob in blobs:
+                if blob.name.endswith('/') or blob.name.endswith('.placeholder') or not blob.name.endswith('.pptx'):
+                    continue
+                
+                filename = blob.name.split('/')[-1]
+                slides.append({
+                    "name": filename,
+                    "storage_path": blob.name,
+                    "size": blob.size,
+                    "updated": blob.updated.isoformat() if blob.updated else None,
+                    "content_type": blob.content_type,
+                    "download_url": self._get_blob_url(blob, blob.name),
+                    "public_url": self._get_public_blob_url(blob, blob.name),
+                })
+        except Exception as e:
+            print(f"Error listing curated slides: {e}")
+        
+        return slides
+
     def delete_file(self, storage_path: str) -> bool:
         """
         Delete a file from Firebase Storage.

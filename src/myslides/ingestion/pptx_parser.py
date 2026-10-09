@@ -3,7 +3,7 @@ PPTX Parser for MySlides.
 Extracts comprehensive information from PowerPoint slides including shapes, charts, images, text, and styling.
 """
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, List
@@ -188,6 +188,23 @@ class ShapeInfo:
                 text_content = TextContent.from_text_frame(shape.text_frame)
             except Exception:
                 text_content = None
+        elif getattr(shape, 'has_table', False) is True:
+            try:
+                table = shape.table
+                table_paragraphs = []
+                for row in table.rows:
+                    row_texts = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if row_texts:
+                        table_paragraphs.append(" | ".join(row_texts))
+                if table_paragraphs:
+                    font_info = FontInfo(name="Calibri", size=11.0, bold=False, italic=False, underline=False, color=None)
+                    text_content = TextContent(
+                        text="\n".join(table_paragraphs),
+                        font=font_info,
+                        paragraphs=table_paragraphs
+                    )
+            except Exception:
+                text_content = None
         
         # Extract fill color with error handling
         fill_color = None
@@ -315,6 +332,8 @@ class TableInfo:
     has_header: bool
     cell_count: int
     position: PositionInfo
+    headers: list[str] = field(default_factory=list)
+    data: list[list[str]] = field(default_factory=list)
     
     @classmethod
     def from_table(cls, table, position: Optional[PositionInfo] = None) -> "TableInfo":
@@ -322,14 +341,21 @@ class TableInfo:
         rows = len(table.rows) if hasattr(table, 'rows') else 0
         columns = len(table.columns) if hasattr(table, 'columns') else 0
         
-        # Check if first row looks like a header
+        # Extract headers and data
+        headers = []
+        data = []
         has_header = False
+        
         if rows > 0:
             try:
-                first_row = table.rows[0]
-                has_header = any(cell.text.strip() for cell in first_row.cells)
+                for i, row in enumerate(table.rows):
+                    row_vals = [cell.text.strip() for cell in row.cells]
+                    data.append(row_vals)
+                    if i == 0 and any(val for val in row_vals):
+                        has_header = True
+                        headers = row_vals
             except Exception:
-                has_header = False
+                pass
         
         if position is None:
             if hasattr(table, 'left') and hasattr(table, 'top'):
@@ -342,7 +368,9 @@ class TableInfo:
             columns=columns,
             has_header=has_header,
             cell_count=rows * columns,
-            position=position
+            position=position,
+            headers=headers,
+            data=data
         )
 
 
@@ -485,14 +513,14 @@ class PPTXParser:
                     all_text.append(shape_info.text_content.text)
                 
                 # Extract specific types
-                if (hasattr(shape, 'has_chart') and shape.has_chart) or (hasattr(shape, 'chart') and shape.chart):
+                if getattr(shape, 'has_chart', False) is True:
                     try:
                         chart_info = ChartInfo.from_chart(shape.chart, position=shape_info.position)
                         charts.append(chart_info)
                     except Exception as err:
                         print(f"Error parsing chart on slide {slide_index}: {err}")
                 
-                if (hasattr(shape, 'has_table') and shape.has_table) or (hasattr(shape, 'table') and shape.table):
+                if getattr(shape, 'has_table', False) is True:
                     try:
                         table_info = TableInfo.from_table(shape.table, position=shape_info.position)
                         tables.append(table_info)

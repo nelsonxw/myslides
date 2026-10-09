@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,6 +25,8 @@ from myslides.generation.pptx_exporter import PPTXExporter
 from myslides.generation.data_parser import DataParser
 from myslides.generation.slide_preview_renderer import SlidePreviewRenderer
 from myslides.generation.pdf_exporter import PDFExporter
+from myslides.generation.slide_redesign_service import SlideRedesignService
+from myslides.ingestion.curated_slides_reader import CuratedSlidesReader
 from myslides.api.api_models import (
     CollectionCreate, CollectionResponse, CollectionsListResponse,
     TemplateResponse, TemplateUpdate, TemplatesListResponse,
@@ -33,7 +35,12 @@ from myslides.api.api_models import (
     SlideGenerationRequest, SlideGenerationResponse,
     DeckGenerationRequest, DeckGenerationResponse, DeckResponse,
     PaletteResponse, PalettesListResponse,
-    UploadResponse
+    UploadResponse,
+    CuratedSlideItemResponse, CuratedSlidesListResponse,
+    CuratedSlidesStatusResponse, CuratedSlidesSyncResponse,
+    CuratedSlidesReindexStatusResponse, CuratedSlidesSyncAndReindexStatusResponse,
+    SlideImprovementResponse,
+    SlideRefineRequest, SlideRefineResponse
 )
 
 # Initialize FastAPI app
@@ -55,6 +62,7 @@ app.add_middleware(
 # Initialize services
 db_manager = DatabaseManager()
 ingestion_pipeline = IngestionPipeline()
+curated_slides_reader = CuratedSlidesReader()
 
 # Initialize LLM client (auto-detect provider)
 llm_client = LLMClient()
@@ -66,6 +74,19 @@ template_matcher = TemplateMatcher()
 
 # Initialize generation services
 slide_generator = SlideGenerator()
+slide_redesign_service = SlideRedesignService(
+    prompt_parser=prompt_parser,
+    template_matcher=template_matcher
+)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Ensure catalog mappings to Firebase Storage curated slides are up to date on startup."""
+    try:
+        curated_slides_reader.reconcile_from_ingestion_results()
+    except Exception as e:
+        print(f"Warning: Curated slides startup reconciliation skipped: {e}")
 
 
 # Health check
@@ -73,6 +94,138 @@ slide_generator = SlideGenerator()
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "version": "1.0.0"}
+
+
+# Curated Training Slides Endpoints (Sourced from Firebase Storage "curated slides" folder)
+@app.get("/api/training-slides", response_model=CuratedSlidesListResponse)
+async def list_training_slides(
+    classification: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100
+):
+    """
+    List curated training slides directly from Firebase Storage 'curated slides' folder.
+    """
+    try:
+        slides = curated_slides_reader.list_training_slides()
+        if classification:
+            slides = [s for s in slides if s.classification == classification]
+
+        total = len(slides)
+        paged_slides = slides[skip: skip + limit]
+        indexed_count = sum(1 for s in slides if s.is_indexed)
+
+        return CuratedSlidesListResponse(
+            slides=[CuratedSlideItemResponse(**s.to_dict()) for s in paged_slides],
+            total=total,
+            indexed_count=indexed_count
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/training-slides/status", response_model=CuratedSlidesStatusResponse)
+async def get_training_slides_status():
+    """
+    Get connection and catalog status for curated training slides in Firebase Storage.
+    """
+    try:
+        status = curated_slides_reader.get_catalog_status()
+        return CuratedSlidesStatusResponse(**status)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/training-slides/sync", response_model=CuratedSlidesSyncResponse)
+async def sync_training_slides(
+    limit: Optional[int] = None
+):
+    """
+    Sync training slides from Firebase Storage 'curated slides' folder.
+    """
+    try:
+        result = curated_slides_reader.sync_all_curated_slides(limit=limit)
+        return CuratedSlidesSyncResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Combined sync-and-reindex job state
+_sync_reindex_job = {
+    "status": "idle",
+    "sync_total_found": 0,
+    "sync_synced_count": 0,
+    "sync_failed_count": 0,
+    "reindex_total": 0,
+    "reindex_processed": 0,
+    "reindex_progress_percent": 0.0,
+    "current": "",
+    "time_taken_seconds": None,
+    "categories_summary": None,
+    "error": None,
+}
+
+
+def _run_sync_reindex_task(limit: Optional[int] = None):
+    global _sync_reindex_job
+    try:
+        def on_progress(processed, total, current):
+            _sync_reindex_job["reindex_processed"] = processed
+            _sync_reindex_job["reindex_total"] = total
+            _sync_reindex_job["current"] = str(current).replace("curated slides/", "")
+            _sync_reindex_job["reindex_progress_percent"] = round((processed / total) * 100, 1) if total else 0.0
+
+        res = curated_slides_reader.sync_and_reindex_all(limit=limit, progress_callback=on_progress)
+        _sync_reindex_job["status"] = "completed"
+        _sync_reindex_job["sync_total_found"] = res["sync"]["total_found"]
+        _sync_reindex_job["sync_synced_count"] = res["sync"]["synced_count"]
+        _sync_reindex_job["sync_failed_count"] = res["sync"]["failed_count"]
+        _sync_reindex_job["reindex_total"] = res["reindex"]["total_slides"]
+        _sync_reindex_job["reindex_processed"] = res["reindex"]["reindexed_count"]
+        _sync_reindex_job["reindex_progress_percent"] = 100.0
+        _sync_reindex_job["time_taken_seconds"] = res["total_time_seconds"]
+        _sync_reindex_job["categories_summary"] = res["reindex"]["categories_summary"]
+    except Exception as e:
+        _sync_reindex_job["status"] = "error"
+        _sync_reindex_job["error"] = str(e)
+
+
+@app.post("/api/training-slides/sync-and-reindex", response_model=CuratedSlidesSyncAndReindexStatusResponse)
+async def trigger_sync_and_reindex_training_slides(
+    background_tasks: BackgroundTasks,
+    limit: Optional[int] = None
+):
+    """
+    Combined operation: sync new slides from Firebase Storage, then re-index all with Gemini Flash.
+    Runs asynchronously in the background.
+    """
+    global _sync_reindex_job
+    if _sync_reindex_job["status"] == "running":
+        return CuratedSlidesSyncAndReindexStatusResponse(**_sync_reindex_job)
+
+    _sync_reindex_job = {
+        "status": "running",
+        "sync_total_found": 0,
+        "sync_synced_count": 0,
+        "sync_failed_count": 0,
+        "reindex_total": 0,
+        "reindex_processed": 0,
+        "reindex_progress_percent": 0.0,
+        "current": "Starting sync and re-index with Gemini Flash...",
+        "time_taken_seconds": None,
+        "categories_summary": None,
+        "error": None,
+    }
+
+    background_tasks.add_task(_run_sync_reindex_task, limit)
+    return CuratedSlidesSyncAndReindexStatusResponse(**_sync_reindex_job)
+
+
+@app.get("/api/training-slides/sync-and-reindex/status", response_model=CuratedSlidesSyncAndReindexStatusResponse)
+async def get_sync_reindex_status():
+    """Get status and progress of combined sync-and-reindex job."""
+    return CuratedSlidesSyncAndReindexStatusResponse(**_sync_reindex_job)
+
 
 
 # Collection Endpoints
@@ -171,6 +324,36 @@ async def update_template(template_id: int, update: TemplateUpdate):
 
 
 # Generation Endpoints
+@app.post("/api/generate/improve-slide", response_model=SlideImprovementResponse)
+async def improve_existing_slide(
+    file: UploadFile = File(...),
+    prompt: Optional[str] = Form(None)
+):
+    """
+    Analyze an existing PPTX slide, extract its content, and recommend improved
+    layouts from the curated templates collection based on an optional prompt.
+    """
+    temp_dir = Path(tempfile.mkdtemp())
+    temp_file_path = temp_dir / (file.filename or "uploaded_slide.pptx")
+
+    try:
+        with open(temp_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        result = slide_redesign_service.analyze_slide_file(
+            pptx_path=temp_file_path,
+            user_improvement_prompt=prompt,
+        )
+
+        return SlideImprovementResponse(**result.to_dict())
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze slide: {str(e)}")
+    finally:
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+
+
 @app.post("/api/generate/parse-prompt", response_model=PromptParseResponse)
 async def parse_prompt(request: PromptParseRequest):
     """
@@ -250,6 +433,36 @@ async def create_slide(request: SlideGenerationRequest):
             color_preference=request.color_preference
         )
 
+        slide_generator.config.template_pptx_path = None
+        # Resolve template configuration
+        if request.template_id:
+            try:
+                template_obj = None
+                if str(request.template_id).isdigit():
+                    template_obj = db_manager.get_template(int(request.template_id))
+                else:
+                    template_obj = db_manager.get_template_by_id(str(request.template_id))
+
+                if template_obj:
+                    slide_generator.config.template_id = str(template_obj.id)
+                    slide_generator.config.template_color_palette = template_obj.color_palette or []
+                    slide_generator.config.template_element_manifest = template_obj.element_manifest or {}
+
+                    # Resolve local or cached PPTX for true curated template cloning
+                    storage_ref = template_obj.original_pptx_reference
+                    if storage_ref and "curated" in storage_ref:
+                        cache_file = settings.data_dir / "templates" / storage_ref.split("/")[-1]
+                        if not cache_file.exists():
+                            try:
+                                firebase_service = FirebaseStorageService.get_instance()
+                                firebase_service.download_file(storage_ref, cache_file)
+                            except Exception:
+                                pass
+                        if cache_file.exists():
+                            slide_generator.config.template_pptx_path = str(cache_file)
+            except Exception:
+                pass
+
         # Generate slide
         presentation = slide_generator.generate_slide(intent)
 
@@ -274,11 +487,159 @@ async def create_slide(request: SlideGenerationRequest):
         return SlideGenerationResponse(
             request_id=gen_request.id,
             status="complete",
-            file_path=str(output_path)
+            file_path=str(output_path),
+            slide_type=request.slide_type,
+            content=request.content,
+            tone=request.tone,
+            template_id=request.template_id,
+            element_preferences=request.element_preferences,
+            color_preference=request.color_preference
         )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/generate/refine-slide", response_model=SlideRefineResponse)
+async def refine_slide(request: SlideRefineRequest):
+    """
+    Refine an existing slide using natural language prompt.
+    Modifies styles, formats, charts, or content based on what AI has learned from curated slides.
+    """
+    try:
+        from myslides.generation.generation_models import GenerationIntent, SlideType, GenerationConfig
+        
+        # Build prior intent
+        try:
+            prior_slide_type = SlideType(request.current_slide_type)
+        except ValueError:
+            prior_slide_type = SlideType.CONTENT_SLIDE
+
+        prev_intent = GenerationIntent(
+            slide_type=prior_slide_type,
+            content=request.current_content or {},
+            color_preference=request.current_color_preference,
+        )
+
+        # Parse refinement with contextual prompt parser
+        refined_intent = prompt_parser.parse_with_context(
+            prompt=request.refinement_prompt,
+            previous_intent=prev_intent,
+        )
+
+        # Preserve existing content fields if not overridden
+        for field_name in ["title", "subtitle", "items", "steps", "columns"]:
+            if not refined_intent.content.get(field_name) and request.current_content.get(field_name):
+                refined_intent.content[field_name] = request.current_content[field_name]
+
+        # Only preserve table_data if the refined slide is actually a table_view
+        if refined_intent.slide_type == SlideType.TABLE_VIEW and not refined_intent.content.get("table_data"):
+            if request.current_content.get("table_data"):
+                refined_intent.content["table_data"] = request.current_content["table_data"]
+        else:
+            refined_intent.content.pop("table_data", None)
+
+        # If user refined to timeline / roadmap, ensure timeline events are generated
+        if refined_intent.slide_type == SlideType.TIMELINE and not refined_intent.content.get("events"):
+            events = []
+            source_items = refined_intent.content.get("items") or request.current_content.get("items", [])
+            for idx, item in enumerate(source_items[:5], 1):
+                item_str = str(item).strip()
+                parts = item_str.split(":", 1)
+                if len(parts) == 2:
+                    events.append({"date": f"Phase {idx}", "title": parts[0].strip(), "description": parts[1].strip()[:140]})
+                else:
+                    events.append({"date": f"Milestone {idx}", "title": item_str[:35], "description": item_str[:140]})
+            if events:
+                refined_intent.content["events"] = events
+
+        # If user refined to process flow, ensure steps are generated
+        if refined_intent.slide_type == SlideType.PROCESS_FLOW and not refined_intent.content.get("steps"):
+            steps = []
+            source_items = refined_intent.content.get("items") or request.current_content.get("items", [])
+            for idx, item in enumerate(source_items[:5], 1):
+                item_str = str(item).strip()
+                parts = item_str.split(":", 1)
+                label = parts[0].strip() if len(parts) == 2 else item_str[:35]
+                desc = parts[1].strip()[:140] if len(parts) == 2 else ""
+                steps.append({"number": idx, "label": label, "description": desc})
+            if steps:
+                refined_intent.content["steps"] = steps
+
+        # Search the 1,528 curated slides in ChromaDB to find matching template
+        matches = template_matcher.find_similar_templates(
+            intent=refined_intent,
+            n_results=5,
+            use_adaptive_element_count=True,
+        )
+
+        matched_template = matches[0] if matches else None
+        new_template_id = matched_template.template_id if matched_template else request.current_template_id
+        template_name = ""
+        palette = []
+        template_pptx_path = None
+
+        if matched_template:
+            t_data = matched_template.template_data
+            storage_ref = t_data.get("original_pptx_reference", "")
+            template_name = storage_ref.replace("curated slides/", "")
+            palette = t_data.get("color_palette", [])
+
+            if storage_ref and "curated" in storage_ref:
+                cache_file = settings.data_dir / "templates" / storage_ref.split("/")[-1]
+                if not cache_file.exists():
+                    try:
+                        firebase_service = FirebaseStorageService.get_instance()
+                        firebase_service.download_file(storage_ref, cache_file)
+                    except Exception:
+                        pass
+                if cache_file.exists():
+                    template_pptx_path = str(cache_file)
+
+        # Configure slide generator with true curated template PPTX cloning
+        gen_config = GenerationConfig(
+            template_id=str(new_template_id) if new_template_id else None,
+            template_pptx_path=template_pptx_path,
+            template_color_palette=palette or [],
+        )
+
+        generator = SlideGenerator(config=gen_config)
+        presentation = generator.generate_slide(refined_intent)
+
+        # Save to temp file
+        temp_dir = Path(tempfile.mkdtemp())
+        output_path = temp_dir / "refined_slide.pptx"
+        exporter = PPTXExporter(presentation)
+        exporter.save(output_path)
+
+        request_data = {
+            "user_id": 0,
+            "prompt_text": request.refinement_prompt,
+            "parsed_intent": refined_intent.content,
+            "selected_template_id": new_template_id,
+            "generated_file_path": str(output_path),
+            "status": "complete",
+        }
+        gen_request = db_manager.create_generation_request(request_data)
+
+        message = f"Refined slide to {refined_intent.slide_type.value.replace('_', ' ')}"
+        if template_name:
+            message += f" matching curated template '{template_name}'"
+
+        return SlideRefineResponse(
+            request_id=gen_request.id,
+            status="complete",
+            file_path=str(output_path),
+            slide_type=refined_intent.slide_type.value,
+            content=refined_intent.content,
+            template_id=new_template_id,
+            color_preference=refined_intent.color_preference,
+            matched_template_name=template_name,
+            matched_template_palette=palette,
+            message=message,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refine slide: {str(e)}")
 
 
 @app.post("/api/generate/create-deck", response_model=DeckGenerationResponse)
@@ -396,6 +757,57 @@ async def parse_excel_data(file: UploadFile = File(...)):
 
 
 # Slide and Deck Endpoints
+@app.get("/api/training-slides/{template_id}/preview")
+async def get_curated_slide_preview(template_id: int):
+    """
+    Get PNG preview of a curated training slide.
+    Caches rendered PNG files locally in data/curated_previews for instant subsequent loads.
+    Note: Preview rendering does not call Gemini API and does not consume LLM quota.
+    """
+    preview_dir = settings.data_dir / "curated_previews"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    cached_preview = preview_dir / f"template_{template_id}.png"
+
+    if cached_preview.exists() and cached_preview.stat().st_size > 0:
+        return FileResponse(
+            str(cached_preview),
+            media_type="image/png",
+            filename=f"curated_slide_{template_id}_preview.png"
+        )
+
+    template = db_manager.get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    from myslides.storage.firebase_storage import FirebaseStorageService
+    storage_service = FirebaseStorageService.get_instance()
+
+    filename = Path(template.original_pptx_reference).name
+    settings.templates_dir.mkdir(parents=True, exist_ok=True)
+    local_pptx_path = settings.templates_dir / filename
+
+    try:
+        if not local_pptx_path.exists() or local_pptx_path.stat().st_size == 0:
+            storage_service.download_file(template.original_pptx_reference, local_pptx_path)
+
+        rendered_image = SlidePreviewRenderer.render_slide_to_image(
+            str(local_pptx_path),
+            slide_index=template.slide_index,
+            output_path=str(cached_preview)
+        )
+        if rendered_image and Path(rendered_image).exists() and Path(rendered_image).stat().st_size > 0:
+            return FileResponse(
+                str(rendered_image),
+                media_type="image/png",
+                filename=f"curated_slide_{template_id}_preview.png"
+            )
+
+        raise HTTPException(status_code=500, detail="Failed to render slide preview")
+    except Exception as e:
+        logger.error("Failed to generate preview for template %s: %s", template_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to render slide preview: {e}")
+
+
 @app.get("/api/slides/{request_id}/preview")
 async def get_slide_preview(request_id: int):
     """

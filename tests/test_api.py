@@ -274,6 +274,55 @@ class TestGenerationEndpoints:
         assert data["status"] == "complete"
         assert data["slide_count"] == 1
 
+    @patch("myslides.api.main.PPTXExporter")
+    @patch("myslides.api.main.template_matcher")
+    @patch("myslides.api.main.prompt_parser")
+    @patch("myslides.api.main.db_manager")
+    def test_refine_slide(self, mock_db, mock_parser, mock_matcher, mock_exporter_class, client):
+        """Test refining an existing slide with natural language prompt."""
+        from myslides.generation.generation_models import GenerationIntent, SlideType
+        from myslides.template_matching.template_matcher import TemplateMatch
+        from myslides.template_matching.similarity_calculator import SimilarityScore
+
+        mock_refined_intent = GenerationIntent(
+            slide_type=SlideType.PROCESS_FLOW,
+            content={"title": "Refined Title", "steps": [{"label": "Step 1", "number": 1}]},
+            color_preference="blue",
+        )
+        mock_parser.parse_with_context.return_value = mock_refined_intent
+
+        mock_match = TemplateMatch(
+            template_id="curated_1_0",
+            template_data={"original_pptx_reference": "curated slides/test.pptx", "color_palette": ["#003366"]},
+            similarity_score=SimilarityScore(0.8, 0.8, 0.8, 0.8),
+            rank=1,
+            match_reason="Good match",
+        )
+        mock_matcher.find_similar_templates.return_value = [mock_match]
+
+        mock_gen_req = Mock()
+        mock_gen_req.id = 99
+        mock_db.create_generation_request.return_value = mock_gen_req
+
+        mock_exporter_instance = Mock()
+        mock_exporter_class.return_value = mock_exporter_instance
+        mock_exporter_instance.save.return_value = "/tmp/refined.pptx"
+
+        payload = {
+            "refinement_prompt": "Convert to process flow and apply executive blue palette",
+            "current_slide_type": "text_heavy",
+            "current_content": {"title": "Refined Title", "items": ["Item A"]},
+            "current_template_id": "prev_1",
+        }
+
+        response = client.post("/api/generate/refine-slide", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "complete"
+        assert data["slide_type"] == "process_flow"
+        assert data["request_id"] == 99
+        assert "message" in data
+
 
 class TestPalettesEndpoints:
     """Test palette-related endpoints."""

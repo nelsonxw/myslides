@@ -1,11 +1,12 @@
 """
 Slide Classifier for MySlides.
-Classifies slides into categories using heuristics and pattern matching.
+Classifies slides into categories using heuristics and LLM semantic analysis.
 """
 from enum import Enum
 from typing import Optional
 
 from myslides.ingestion.pptx_parser import SlideInfo, ChartType, SlideLayoutType
+from myslides.llm.llm_client import LLMClient, LLMProvider
 
 
 class SlideCategory(Enum):
@@ -29,226 +30,166 @@ class SlideCategory(Enum):
 
 
 class SlideClassifier:
-    """Classifier for categorizing slides based on their content and structure."""
-    
+    """Classifier for categorizing slides based on their content and structure using Gemini Flash LLM."""
+
+    def __init__(self):
+        """Initialize the slide classifier with LLM client."""
+        self._llm_client: Optional[LLMClient] = None
+
+    def _get_llm_client(self) -> LLMClient:
+        """Get LLM client, raising error if unavailable."""
+        if self._llm_client is None:
+            try:
+                client = LLMClient()
+                if client.provider != LLMProvider.GEMINI:
+                    raise RuntimeError("Gemini API key not configured. Please set GEMINI_API_KEY in .env")
+                self._llm_client = client
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize Gemini LLM client: {e}")
+        return self._llm_client
+
     def classify(self, slide_info: SlideInfo) -> SlideCategory:
         """
-        Classify a slide into a category using heuristics.
-        
+        Classify a slide into a category using Gemini Flash LLM.
+
         Args:
             slide_info: SlideInfo object with parsed slide data
-        
+
         Returns:
             SlideCategory enum value
+
+        Raises:
+            RuntimeError: If LLM is unavailable or classification fails
         """
-        # Priority-based classification
-        category = self._classify_by_charts(slide_info)
-        if category != SlideCategory.MIXED:
+        client = self._get_llm_client()
+        category = self._classify_with_llm(slide_info, client)
+        if category:
             return category
-        
-        category = self._classify_by_tables(slide_info)
-        if category != SlideCategory.MIXED:
-            return category
-        
-        category = self._classify_by_images(slide_info)
-        if category != SlideCategory.MIXED:
-            return category
-        
-        category = self._classify_by_text_content(slide_info)
-        if category != SlideCategory.MIXED:
-            return category
-        
-        category = self._classify_by_layout(slide_info)
-        if category != SlideCategory.MIXED:
-            return category
-        
-        return SlideCategory.MIXED
-    
-    def _classify_by_charts(self, slide_info: SlideInfo) -> SlideCategory:
-        """Classify based on chart presence and type."""
-        if not slide_info.charts:
-            return SlideCategory.MIXED
-        
-        chart_count = len(slide_info.charts)
-        
-        if chart_count >= 3:
-            return SlideCategory.DASHBOARD
-        
-        if chart_count == 1:
-            chart = slide_info.charts[0]
-            if chart.chart_type == ChartType.PIE:
-                return SlideCategory.DATA_CHART
-            elif chart.chart_type == ChartType.FUNNEL:
-                return SlideCategory.FUNNEL
-            else:
-                return SlideCategory.DATA_CHART
-        
-        return SlideCategory.MIXED
-    
-    def _classify_by_tables(self, slide_info: SlideInfo) -> SlideCategory:
-        """Classify based on table presence."""
-        if not slide_info.tables:
-            return SlideCategory.MIXED
-        
-        table_count = len(slide_info.tables)
-        
-        if table_count == 1 and slide_info.tables[0].rows * slide_info.tables[0].columns > 6:
-            return SlideCategory.TABLE_VIEW
-        
-        if table_count >= 2:
-            return SlideCategory.COMPARISON
-        
-        return SlideCategory.MIXED
-    
-    def _classify_by_images(self, slide_info: SlideInfo) -> SlideCategory:
-        """Classify based on image presence."""
-        if not slide_info.images:
-            return SlideCategory.MIXED
-        
-        image_count = len(slide_info.images)
-        
-        if image_count >= 3:
-            return SlideCategory.IMAGE_SHOWCASE
-        
-        if image_count == 1 and len(slide_info.shapes) <= 2:
-            return SlideCategory.IMAGE_SHOWCASE
-        
-        return SlideCategory.MIXED
-    
-    def _classify_by_text_content(self, slide_info: SlideInfo) -> SlideCategory:
-        """Classify based on text content patterns."""
-        text = slide_info.text_content.lower()
-        
-        # Check for agenda patterns
-        agenda_keywords = ["agenda", "schedule", "overview", "table of contents", "topics"]
-        if any(keyword in text for keyword in agenda_keywords):
-            return SlideCategory.AGENDA
-        
-        # Check for process flow patterns
-        process_keywords = ["step", "phase", "stage", "process", "workflow", "flow"]
-        if any(keyword in text for keyword in process_keywords):
-            return SlideCategory.PROCESS_FLOW
-        
-        # Check for timeline patterns
-        timeline_keywords = ["timeline", "roadmap", "milestone", "q1", "q2", "q3", "q4", "2020", "2021", "2022", "2023", "2024", "2025"]
-        if any(keyword in text for keyword in timeline_keywords):
-            return SlideCategory.TIMELINE
-        
-        # Check for comparison patterns
-        comparison_keywords = ["vs", "versus", "compare", "comparison", "difference", "pros and cons"]
-        if any(keyword in text for keyword in comparison_keywords):
-            return SlideCategory.COMPARISON
-        
-        # Check for org chart patterns
-        org_keywords = ["organization", "hierarchy", "reporting", "structure", "team", "department"]
-        if any(keyword in text for keyword in org_keywords):
-            return SlideCategory.ORG_CHART
-        
-        # Check for matrix patterns
-        matrix_keywords = ["matrix", "quadrant", "grid", "2x2", "four quadrant"]
-        if any(keyword in text for keyword in matrix_keywords):
-            return SlideCategory.MATRIX
-        
-        # Check for pyramid patterns
-        pyramid_keywords = ["pyramid", "hierarchy of needs", "levels", "tiers"]
-        if any(keyword in text for keyword in pyramid_keywords):
-            return SlideCategory.PYRAMID
-        
-        # Check for text-heavy slides
-        text_length = len(text)
-        if text_length > 500:
-            return SlideCategory.TEXT_HEAVY
-        
-        return SlideCategory.MIXED
-    
-    def _classify_by_layout(self, slide_info: SlideInfo) -> SlideCategory:
-        """Classify based on layout type and shape structure."""
-        layout = slide_info.layout_type
-        
-        if layout == SlideLayoutType.TITLE_SLIDE:
-            return SlideCategory.TITLE_SLIDE
-        
-        if layout == SlideLayoutType.SECTION_HEADER:
-            return SlideCategory.SECTION_HEADER
-        
-        if layout == SlideLayoutType.TITLE_ONLY:
-            return SlideCategory.TITLE_SLIDE
-        
-        if layout == SlideLayoutType.BLANK:
-            return SlideCategory.MIXED
-        
-        # Check for comparison layout (two content areas)
-        if layout == SlideLayoutType.TWO_CONTENT:
-            return SlideCategory.COMPARISON
-        
-        # Check for process flow based on shape arrangement
-        if self._is_process_flow_layout(slide_info):
-            return SlideCategory.PROCESS_FLOW
-        
-        return SlideCategory.MIXED
-    
+        raise RuntimeError("LLM classification failed to return a valid category")
+
+    def _classify_with_llm(self, slide_info: SlideInfo, client: LLMClient) -> Optional[SlideCategory]:
+        """
+        Classify slide using Gemini Flash LLM for semantic understanding.
+
+        Args:
+            slide_info: SlideInfo object with parsed slide data
+            client: LLMClient instance
+
+        Returns:
+            SlideCategory if classification succeeds, None otherwise
+        """
+        description = self._build_slide_description(slide_info)
+
+        system_prompt = (
+            "You are a slide layout classification expert. "
+            "Classify the slide into one of these categories: "
+            "title_slide, agenda, section_header, text_heavy, comparison, process_flow, "
+            "timeline, org_chart, data_chart, matrix, funnel, pyramid, dashboard, "
+            "image_showcase, table_view, mixed. "
+            "Classification guidelines:\n"
+            "- A slide with 3 or more charts is 'dashboard'.\n"
+            "- A slide with 3 or more images and minimal text is 'image_showcase'.\n"
+            "- A slide with extensive reading paragraphs or text length > 300 characters is 'text_heavy'.\n"
+            "- A title_slide typically has a short presentation title and title layout.\n"
+            "Respond with ONLY the category name, no explanation."
+        )
+
+        response = client.generate_completion(
+            description,
+            system_prompt=system_prompt,
+            temperature=0.1,
+            max_tokens=30
+        )
+        category_name = response.strip().lower()
+        for category in SlideCategory:
+            if category.value == category_name:
+                return category
+        return None
+
+    def _build_slide_description(self, slide_info: SlideInfo) -> str:
+        """Build a textual description of the slide for LLM classification."""
+        parts = []
+        if len(slide_info.text_content) > 300:
+            parts.append(f"Content: {slide_info.text_content[:400]} (text length: {len(slide_info.text_content)} characters)")
+        elif slide_info.text_content:
+            parts.append(f"Content: {slide_info.text_content[:200]}")
+
+        if slide_info.charts:
+            parts.append(f"Charts: {len(slide_info.charts)}")
+            for chart in slide_info.charts[:3]:
+                parts.append(f"  - {chart.chart_type.value}")
+
+        if slide_info.tables:
+            parts.append(f"Tables: {len(slide_info.tables)}")
+
+        if slide_info.images:
+            parts.append(f"Images: {len(slide_info.images)}")
+
+        parts.append(f"Shapes: {len(slide_info.shapes)}")
+        parts.append(f"Layout: {slide_info.layout_type.value}")
+        parts.append(f"Complexity: {slide_info.complexity_score}")
+
+        return "\n".join(parts)
+
     def _is_process_flow_layout(self, slide_info: SlideInfo) -> bool:
         """
         Determine if the slide has a process flow layout based on shape arrangement.
-        
+
         Args:
             slide_info: SlideInfo object
-        
+
         Returns:
             True if appears to be a process flow layout
         """
-        # Simple heuristic: check for multiple similar shapes arranged horizontally
         if len(slide_info.shapes) < 3:
             return False
-        
-        # Look for shapes with similar heights and widths arranged horizontally
+
         similar_shapes = []
         for shape in slide_info.shapes:
             if shape.shape_type not in ["group", "picture"]:
                 similar_shapes.append(shape)
-        
+
         if len(similar_shapes) < 3:
             return False
-        
-        # Check if shapes are arranged in a horizontal line
+
         y_positions = []
         for shape in similar_shapes:
             if hasattr(shape, 'position') and hasattr(shape.position, 'y') and isinstance(shape.position.y, (int, float)):
                 y_positions.append(shape.position.y)
-        
+
         if len(y_positions) < 3:
             return False
-        
+
         y_variance = max(y_positions) - min(y_positions)
-        
+
         # If y positions are similar (within 10% of slide height), likely horizontal arrangement
         if y_variance < slide_info.height * 0.1:
             return True
-        
+
         return False
-    
+
     def get_tags(self, slide_info: SlideInfo) -> list[str]:
         """
         Generate tags for a slide based on its content.
-        
+
         Args:
             slide_info: SlideInfo object
-        
+
         Returns:
             List of tag strings
         """
         tags = []
         category = self.classify(slide_info)
         tags.append(category.value)
-        
+
         # Add chart type tags
         for chart in slide_info.charts:
             if chart.chart_type != ChartType.UNKNOWN:
                 tags.append(f"chart_{chart.chart_type.value}")
-        
+
         # Add layout tags
         tags.append(f"layout_{slide_info.layout_type.value}")
-        
+
         # Add complexity tags
         if slide_info.complexity_score < 5:
             tags.append("simple")
@@ -256,7 +197,7 @@ class SlideClassifier:
             tags.append("moderate")
         else:
             tags.append("complex")
-        
+
         # Add element count tags
         if len(slide_info.charts) > 0:
             tags.append("has_chart")
@@ -264,5 +205,5 @@ class SlideClassifier:
             tags.append("has_table")
         if len(slide_info.images) > 0:
             tags.append("has_image")
-        
+
         return tags

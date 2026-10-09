@@ -3,50 +3,77 @@
  *
  * AI-Powered Slide Builder from Curated Templates
  */
-import React, { useState } from 'react';
-import UploadInterface from './components/UploadInterface';
+import React, { useState, Component, useCallback } from 'react';
 import PromptInterface from './components/PromptInterface';
 import SuggestionPreviewPanel from './components/SuggestionPreviewPanel';
 import EditingPanel from './components/EditingPanel';
-import DeckBuilder from './components/DeckBuilder';
+import CuratedSlidesCatalog from './components/CuratedSlidesCatalog';
 import { api } from './api/client';
 import './App.css';
 
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('ErrorBoundary caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="error-fallback-card">
+          <h2>Application Notice</h2>
+          <p>{this.state.error?.message || 'An unexpected display error occurred.'}</p>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              if (this.props.onReset) this.props.onReset();
+            }}
+          >
+            Return to Generator
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
-  const [activeTab, setActiveTab] = useState('upload');
+  const [activeTab, setActiveTab] = useState('prompt');
   const [parsedIntent, setParsedIntent] = useState(null);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [_selectedTemplate, setSelectedTemplate] = useState(null);
   const [generatedSlide, setGeneratedSlide] = useState(null);
-  const [deckId, setDeckId] = useState(null);
 
-  const handleUploadComplete = (data) => {
-    console.log('Upload complete:', data);
-  };
-
-  const handlePromptParsed = (intent) => {
+  const handlePromptParsed = useCallback((intent) => {
     setParsedIntent(intent);
     setActiveTab('suggestions');
-  };
+  }, []);
 
-  const handleTemplateSelected = (template) => {
+  const handleTemplateSelected = useCallback((template) => {
     setSelectedTemplate(template);
-  };
+  }, []);
 
-  const handleSlideGenerated = (slideData) => {
+  const handleSlideGenerated = useCallback((slideData, navigateToEdit = true) => {
     setGeneratedSlide(slideData);
-    setActiveTab('edit');
-  };
+    if (navigateToEdit) {
+      setActiveTab('edit');
+    }
+  }, []);
 
-  const handleDeckGenerated = (deckData) => {
-    setDeckId(deckData.deck_id);
-    setActiveTab('deck');
-  };
-
-  const handleRegenerate = (newSlideData) => {
+  const handleRegenerate = useCallback((newSlideData) => {
     setGeneratedSlide(newSlideData);
-  };
+  }, []);
 
-  const handleDownload = async (requestId) => {
+  const handleDownload = useCallback(async (requestId) => {
     try {
       const response = await api.downloadSlide(requestId);
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -59,7 +86,15 @@ function App() {
     } catch (error) {
       console.error('Failed to download slide:', error);
     }
-  };
+  }, []);
+
+  const handleOpenEditor = useCallback(() => {
+    setActiveTab('edit');
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setActiveTab('prompt');
+  }, []);
 
   return (
     <div className="app">
@@ -70,16 +105,16 @@ function App() {
 
       <nav className="app-nav">
         <button
-          className={`nav-tab ${activeTab === 'upload' ? 'active' : ''}`}
-          onClick={() => setActiveTab('upload')}
-        >
-          Upload
-        </button>
-        <button
           className={`nav-tab ${activeTab === 'prompt' ? 'active' : ''}`}
           onClick={() => setActiveTab('prompt')}
         >
           Generate
+        </button>
+        <button
+          className={`nav-tab ${activeTab === 'catalog' ? 'active' : ''}`}
+          onClick={() => setActiveTab('catalog')}
+        >
+          Curated Slides
         </button>
         <button
           className={`nav-tab ${activeTab === 'suggestions' ? 'active' : ''}`}
@@ -95,50 +130,37 @@ function App() {
         >
           Edit
         </button>
-        <button
-          className={`nav-tab ${activeTab === 'deck' ? 'active' : ''}`}
-          onClick={() => setActiveTab('deck')}
-          disabled={!deckId}
-        >
-          Deck
-        </button>
       </nav>
 
       <main className="app-main">
-        {activeTab === 'upload' && (
-          <UploadInterface onUploadComplete={handleUploadComplete} />
-        )}
+        <ErrorBoundary onReset={handleReset}>
+          {activeTab === 'prompt' && (
+            <PromptInterface
+              onPromptParsed={handlePromptParsed}
+            />
+          )}
 
-        {activeTab === 'prompt' && (
-          <PromptInterface
-            onPromptParsed={handlePromptParsed}
-            onSlideGenerated={handleSlideGenerated}
-            onDeckGenerated={handleDeckGenerated}
-          />
-        )}
+          {activeTab === 'catalog' && (
+            <CuratedSlidesCatalog />
+          )}
 
-        {activeTab === 'suggestions' && (
-          <SuggestionPreviewPanel
-            parsedIntent={parsedIntent}
-            onTemplateSelected={handleTemplateSelected}
-            onSlideGenerated={handleSlideGenerated}
-          />
-        )}
+          {activeTab === 'suggestions' && (
+            <SuggestionPreviewPanel
+              parsedIntent={parsedIntent}
+              onTemplateSelected={handleTemplateSelected}
+              onSlideGenerated={handleSlideGenerated}
+              onOpenEditor={handleOpenEditor}
+            />
+          )}
 
-        {activeTab === 'edit' && (
-          <EditingPanel
-            generatedSlide={generatedSlide}
-            onRegenerate={handleRegenerate}
-            onDownload={handleDownload}
-          />
-        )}
-
-        {activeTab === 'deck' && (
-          <DeckBuilder
-            deckId={deckId}
-            onDeckExported={() => console.log('Deck exported')}
-          />
-        )}
+          {activeTab === 'edit' && (
+            <EditingPanel
+              generatedSlide={generatedSlide}
+              onRegenerate={handleRegenerate}
+              onDownload={handleDownload}
+            />
+          )}
+        </ErrorBoundary>
       </main>
 
       <footer className="app-footer">

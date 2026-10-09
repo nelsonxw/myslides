@@ -114,6 +114,12 @@ class SlideGenerationResponse(BaseModel):
     status: str
     file_path: Optional[str] = None
     preview_path: Optional[str] = None
+    slide_type: Optional[str] = None
+    content: Optional[Dict[str, Any]] = None
+    tone: Optional[str] = None
+    template_id: Optional[str] = None
+    element_preferences: Optional[List[str]] = None
+    color_preference: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -170,3 +176,114 @@ class UploadResponse(BaseModel):
     file_name: str
     status: str
     templates_created: int
+
+
+# Curated Training Slides Models
+class CuratedSlideItemResponse(BaseModel):
+    """Model for a curated training slide from Firebase Storage."""
+    name: str
+    storage_path: str
+    size: int
+    updated: Optional[str] = None
+    download_url: str
+    public_url: str
+    template_id: Optional[int] = None
+    classification: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_indexed: bool = False
+
+
+class CuratedSlidesListResponse(BaseModel):
+    """Response model for listing curated training slides."""
+    slides: List[CuratedSlideItemResponse]
+    total: int
+    indexed_count: int
+
+
+class CuratedSlidesStatusResponse(BaseModel):
+    """Response model for curated training slides status."""
+    firebase_connected: bool
+    storage_bucket: str
+    curated_slides_folder: str
+    total_curated_in_storage: int
+    total_curated_indexed: int
+    total_templates_in_db: int
+    total_collections_in_db: int
+
+
+class CuratedSlidesSyncResponse(BaseModel):
+    """Response model for curated slides sync operation."""
+    total_found: int
+    total_pending: int
+    synced_count: int
+    failed_count: int
+    errors: List[Dict[str, str]]
+
+
+class CuratedSlidesReindexStatusResponse(BaseModel):
+    """Response model for curated slides manual re-indexing and vectorization."""
+    status: str  # idle, running, completed, error
+    total: int = 0
+    processed: int = 0
+    current: str = ""
+    progress_percent: float = 0.0
+    time_taken_seconds: Optional[float] = None
+    categories_summary: Optional[Dict[str, int]] = None
+    error: Optional[str] = None
+
+
+class CuratedSlidesSyncAndReindexStatusResponse(BaseModel):
+    """Response model for combined sync and re-index operation."""
+    status: str  # idle, running, completed, error
+    sync_total_found: int = 0
+    sync_synced_count: int = 0
+    sync_failed_count: int = 0
+    reindex_total: int = 0
+    reindex_processed: int = 0
+    reindex_progress_percent: float = 0.0
+    current: str = ""
+    time_taken_seconds: Optional[float] = None
+    categories_summary: Optional[Dict[str, int]] = None
+    error: Optional[str] = None
+
+
+
+# Slide Improvement / Redesign Models
+class SlideImprovementResponse(BaseModel):
+    """Response model for analyzing an existing slide and suggesting improved layouts."""
+    original_classification: str
+    extracted_title: str
+    extracted_subtitle: Optional[str] = None
+    extracted_items: List[str]
+    suggested_prompt: str
+    recommended_slide_types: List[str]
+    parsed_intent: Dict[str, Any]
+    suggested_templates: List[Dict[str, Any]]
+
+
+# Slide AI Refinement Models (for Edit Tab)
+class SlideRefineRequest(BaseModel):
+    """Request model for modifying a generated slide using natural language prompt."""
+    refinement_prompt: str
+    current_slide_type: str
+    current_content: Dict[str, Any]
+    current_template_id: Optional[str] = None
+    current_color_preference: Optional[str] = None
+    conversation_id: Optional[str] = None
+
+
+class SlideRefineResponse(BaseModel):
+    """Response model after AI refinement."""
+    request_id: int
+    status: str
+    file_path: Optional[str] = None
+    slide_type: str
+    content: Dict[str, Any]
+    template_id: Optional[str] = None
+    color_preference: Optional[str] = None
+    matched_template_name: Optional[str] = None
+    matched_template_palette: Optional[List[str]] = None
+    message: str
+
+
+
